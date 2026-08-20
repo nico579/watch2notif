@@ -1,0 +1,17 @@
+{
+  "poll_interval_seconds": 60,
+  "feeds": [
+    {"key": "inbox_unread", "label": "Inbox: unread messages", "url": "", "enabled": true, "kind": "rss", "interval_seconds": null},
+    {"key": "inbox_everything", "label": "Inbox: everything", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "inbox_messages", "label": "Inbox: messages only", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "inbox_comment_replies", "label": "Inbox: comment replies only", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "inbox_post_replies", "label": "Inbox: self-post replies only", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "inbox_mentions", "label": "Inbox: mentions of username", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "front_page", "label": "Front page", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "saved", "label": "Saved links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "upvoted", "label": "Upvoted links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "downvoted", "label": "Downvoted links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "hidden", "label": "Hidden links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
+    {"key": "github_issues_example", "label": "GitHub issues example", "url": "owner/repo", "enabled": false, "kind": "github_issues", "interval_seconds": 300}
+  ]
+}

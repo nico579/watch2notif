@@ -1,0 +1,75 @@
+name: CI
+
+# Verifie sur les trois systemes que le code s'importe sans erreur et que
+# le bundle PyInstaller se construit. Pas de test du poller lui-meme (il
+# faudrait un vrai flux RSS et une session graphique pour les notifications,
+# ce qu'un runner n'a pas).
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  syntaxe:
+    name: syntaxe et imports ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dependances
+        run: python -m pip install --quiet -r requirements.txt
+
+      - name: Compiler tous les modules
+        run: python -m compileall -q .
+
+      - name: Verifier que autostart_manager expose bien is_enabled/enable/disable
+        run: python -c "import autostart_manager as a; assert callable(a.is_enabled) and callable(a.enable) and callable(a.disable)"
+
+  bundle:
+    name: bundle ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            notifier: dist/watch2notif/watch2notif.exe
+            settings: dist/watch2notif/watch2notif-settings.exe
+          - os: ubuntu-22.04
+            notifier: dist/watch2notif/watch2notif
+            settings: dist/watch2notif/watch2notif-settings
+          - os: macos-latest
+            notifier: dist/watch2notif/watch2notif
+            settings: dist/watch2notif/watch2notif-settings
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Dependances systeme pour tkinter (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-tk
+
+      - name: Construire le bundle
+        run: python build.py
+
+      - name: Verifier que les deux executables existent
+        shell: bash
+        run: |
+          test -f "${{ matrix.notifier }}" || { echo "notifier manquant"; exit 1; }
+          test -f "${{ matrix.settings }}" || { echo "settings manquant"; exit 1; }
