@@ -17,6 +17,9 @@ from .base import Entry
 LABEL = "GitHub issues"
 SOURCE_HINT = "owner/repo (ex: nico579/watch2notif)"
 API_ROOT = "https://api.github.com"
+# Reste large sous la limite non authentifiee de 60 requetes/heure (voir
+# le docstring plus haut).
+DEFAULT_INTERVAL_SECONDS = 300
 
 
 def fetch_entries(repo: str) -> list:
@@ -44,7 +47,10 @@ def fetch_entries(repo: str) -> list:
         entries.append(Entry(
             id=str(item["id"]),
             title=item.get("title", "(sans titre)"),
-            author=item.get("user", {}).get("login", "?"),
+            # "user" est present mais vaut JSON null pour un compte GitHub
+            # supprime : item.get("user", {}) renvoie alors None (le defaut
+            # ne joue que si la cle est absente), pas {} - d'ou le `or {}`.
+            author=(item.get("user") or {}).get("login", "?"),
             link=item.get("html_url", ""),
             summary=body[:150],
         ))

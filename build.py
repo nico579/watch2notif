@@ -1,4 +1,4 @@
-"""Construit le bundle autonome (watch2notif + watch2notif-settings), dans un
+"""Construit le bundle autonome (executable unique watch2notif), dans un
 environnement isole jetable.
 
 Pourquoi un environnement dedie a la construction, distinct de celui
@@ -54,15 +54,13 @@ def main() -> int:
              "construction du bundle")
 
     suffixe = ".exe" if sys.platform == "win32" else ""
-    notifier = SORTIE / f"watch2notif{suffixe}"
-    reglages = SORTIE / f"watch2notif-settings{suffixe}"
-    for executable in (notifier, reglages):
-        if not executable.exists():
-            raise SystemExit(f"Executable introuvable : {executable}")
+    executable = SORTIE / f"watch2notif{suffixe}"
+    if not executable.exists():
+        raise SystemExit(f"Executable introuvable : {executable}")
 
     taille = sum(f.stat().st_size for f in SORTIE.rglob("*") if f.is_file())
     print(f"\nBundle construit : {SORTIE}")
-    print(f"  executables : {notifier.name}, {reglages.name}")
+    print(f"  executable  : {executable.name}")
     print(f"  taille      : {taille / 1024 / 1024:.0f} Mo")
     return 0
 

@@ -6,6 +6,7 @@ pour ce projet. On se contente de prevenir via le systray, l'utilisateur
 va chercher la nouvelle version lui-meme sur la page de release.
 """
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -13,7 +14,11 @@ from pathlib import Path
 
 VERSION = "0.1.0"
 DEPOT = "nico579/watch2notif"
-CACHE_FILE_NAME = "update_check.json"
+# Prefixe par un point : state/ contient aussi un fichier par source
+# (nomme d'apres sa cle, cf notifier.state_file), et slugify() ne peut
+# jamais produire de point en tete - une source nommee "Update Check" ne
+# collisionnera donc jamais avec ce cache interne.
+CACHE_FILE_NAME = ".update_check.json"
 # Six heures : une version ne sort pas plus souvent, pas la peine
 # d'interroger GitHub a chaque cycle de poll (meme intervalle que
 # blink2video/maj.py, pas de raison de diverger).
@@ -29,6 +34,12 @@ def _numeros(version: str) -> tuple:
         chiffres = "".join(c for c in part if c.isdigit())
         morceaux.append(int(chiffres) if chiffres else 0)
     return tuple(morceaux)
+
+
+def _write_json_atomic(path: Path, data) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _interroger() -> dict:
@@ -55,20 +66,26 @@ def disponible(base_dir: Path, force: bool = False) -> dict:
 
     age = time.time() - float(cache.get("verifie") or 0)
     if force or age > FRAICHEUR or not cache:
+        # Horodatage pose avant la requete, succes ou echec : sinon un
+        # GitHub indisponible ferait retenter a CHAQUE appel (poll_loop
+        # rappelle disponible() toutes les 5s) au lieu d'attendre FRAICHEUR,
+        # martelant l'API a chaque cycle.
+        tentative = time.time()
         try:
             release = _interroger()
             cache = {
-                "verifie": time.time(),
+                "verifie": tentative,
                 "version": str(release.get("tag_name") or "").lstrip("vV"),
                 "page": release.get("html_url"),
             }
-            try:
-                cache_file.parent.mkdir(exist_ok=True)
-                cache_file.write_text(json.dumps(cache), encoding="utf-8")
-            except OSError:
-                pass
         except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
-            # Hors ligne ou GitHub indisponible : pas grave, on garde le cache.
+            # Hors ligne ou GitHub indisponible : pas grave, on garde le
+            # reste du cache (version/page connues), seul l'horodatage bouge.
+            cache = {**cache, "verifie": tentative}
+        try:
+            cache_file.parent.mkdir(exist_ok=True)
+            _write_json_atomic(cache_file, cache)
+        except OSError:
             pass
 
     version_distante = cache.get("version") or ""

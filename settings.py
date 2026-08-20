@@ -1,16 +1,38 @@
-"""Panneau de reglage : choisir les sources a surveiller (RSS/Atom, issues
-GitHub, voir providers/), leur intervalle de polling individuel, et
-activer le demarrage automatique. Outil generique : n'importe quel flux
-RSS marche, config.json vient preremplli avec les flux inbox Reddit et un
-exemple GitHub issues, mais on peut ajouter/retirer librement.
-Sauvegarde dans config.json, lu par notifier.py.
+"""Settings panel (Qt/PySide6): choose sources to watch (RSS/Atom, GitHub
+issues, see providers/), their per-source polling interval, and toggle
+autostart. Generic tool: any RSS feed works, config.json comes prefilled
+with the Reddit inbox feeds and a GitHub issues example, but sources can
+be freely added/removed. Saves to config.json, read by notifier.py.
+
+Qt over tkinter for this one screen: a real table (QTableWidget) gives
+native, user-draggable column resize and proper widgets per cell
+(checkbox, combobox, spin box) for free, which tkinter's grid/pack model
+doesn't offer without a lot of custom plumbing.
 """
 import json
+import os
 import re
 import sys
-import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 import autostart_manager
 import i18n
@@ -22,8 +44,16 @@ from providers import DEFAULT_KIND, PROVIDERS
 BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "config.json"
 
+# A l'inverse de BASE_DIR : les assets embarques (watch2notif.spec, datas=)
+# vivent dans sys._MEIPASS une fois fige, pas a cote de l'executable.
+RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
+
 KIND_LABELS = {kind: provider.LABEL for kind, provider in PROVIDERS.items()}
-KIND_HINTS = {kind: provider.SOURCE_HINT for kind, provider in PROVIDERS.items()}
+KIND_BY_LABEL = {v: k for k, v in KIND_LABELS.items()}
+KIND_INTERVALS = {kind: getattr(provider, "DEFAULT_INTERVAL_SECONDS", 60) for kind, provider in PROVIDERS.items()}
+
+COL_ACTIVE, COL_KIND, COL_NAME, COL_URL, COL_INTERVAL, COL_REMOVE = range(6)
 
 
 def load_config() -> dict:
@@ -33,7 +63,12 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    # Fichier temporaire puis renommage : notifier.py (poll_loop) relit
+    # config.json en continu dans un autre process, il ne doit jamais
+    # tomber sur une ecriture partielle/tronquee.
+    tmp = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
 
 
 def slugify(label: str, existing_keys: set) -> str:
@@ -46,69 +81,16 @@ def slugify(label: str, existing_keys: set) -> str:
     return candidate
 
 
-class FeedRow:
-    """Une ligne editable (actif / type / label / url / intervalle / supprimer)."""
-
-    def __init__(self, parent: tk.Widget, on_remove, key: str = "", label: str = "",
-                 url: str = "", enabled: bool = False, kind: str = DEFAULT_KIND,
-                 interval_seconds: int = None):
-        self.key = key
-        self.removed = False
-        self.frame = ttk.Frame(parent, padding=(0, 3))
-        self.frame.pack(fill="x")
-
-        self.enabled_var = tk.BooleanVar(value=enabled)
-        ttk.Checkbutton(self.frame, variable=self.enabled_var, width=3).pack(side="left")
-
-        self.kind_var = tk.StringVar(value=KIND_LABELS.get(kind, kind))
-        self._kind_by_label = {v: k for k, v in KIND_LABELS.items()}
-        kind_box = ttk.Combobox(self.frame, textvariable=self.kind_var, values=list(KIND_LABELS.values()),
-                                 state="readonly", width=13)
-        kind_box.pack(side="left", padx=2)
-        kind_box.bind("<<ComboboxSelected>>", lambda e: self._on_kind_change())
-
-        self.label_var = tk.StringVar(value=label)
-        ttk.Entry(self.frame, textvariable=self.label_var, width=20).pack(side="left", padx=2)
-
-        self.url_var = tk.StringVar(value=url)
-        self.url_entry = ttk.Entry(self.frame, textvariable=self.url_var, width=32)
-        self.url_entry.pack(side="left", padx=2)
-
-        self.interval_var = tk.StringVar(value=str(interval_seconds) if interval_seconds else "")
-        ttk.Entry(self.frame, textvariable=self.interval_var, width=6).pack(side="left", padx=2)
-
-        ttk.Button(self.frame, text="x", width=3, command=lambda: on_remove(self)).pack(side="left", padx=2)
-
-        self._on_kind_change()
-
-    def _on_kind_change(self) -> None:
-        kind = self.kind
-        self.url_entry.config(show="*" if kind == "rss" else "")
-
-    @property
-    def kind(self) -> str:
-        return self._kind_by_label.get(self.kind_var.get(), DEFAULT_KIND)
-
-    def destroy(self) -> None:
-        self.removed = True
-        self.frame.destroy()
-
-
-class SettingsApp:
-    def __init__(self, root: tk.Tk, config: dict):
-        self.root = root
+class SettingsWindow(QWidget):
+    def __init__(self, config: dict):
+        super().__init__()
         self.config = config
-        self.rows: list[FeedRow] = []
         self.lang = config.get("lang") or i18n.detect_default_lang()
         self._translated_widgets: list[tuple] = []  # (widget, key)
-        self.root.geometry("850x540")
+        self.setMinimumWidth(900)
+        self.setWindowIcon(QIcon(str(ICON_FILE)))
 
-        self._build_lang_toggle()
-        self._build_interval_row()
-        self._build_autostart_row()
-        self._build_feed_list()
-        self._build_buttons()
-
+        self._build_ui()
         for feed in self.config["feeds"]:
             self._add_row(
                 key=feed.get("key", ""),
@@ -118,7 +100,6 @@ class SettingsApp:
                 kind=feed.get("kind", DEFAULT_KIND),
                 interval_seconds=feed.get("interval_seconds"),
             )
-
         self._apply_language()
 
     def t(self, key: str, **kwargs) -> str:
@@ -128,158 +109,192 @@ class SettingsApp:
         self._translated_widgets.append((widget, key))
 
     def _apply_language(self) -> None:
-        self.root.title(self.t("window_title"))
+        self.setWindowTitle(self.t("window_title"))
         for widget, key in self._translated_widgets:
-            widget.config(text=self.t(key))
-        for button, code in self._lang_buttons:
-            button.state(["pressed"] if code == self.lang else ["!pressed"])
+            widget.setText(self.t(key))
+        self.table.setHorizontalHeaderLabels([
+            self.t("header_active"), self.t("header_kind"), self.t("header_name"),
+            self.t("header_url"), self.t("header_interval"), "",
+        ])
+        for code, btn in self._lang_buttons.items():
+            btn.setDown(code == self.lang)
 
     def _set_lang(self, code: str) -> None:
         self.lang = code
         self._apply_language()
 
-    def _build_lang_toggle(self) -> None:
-        frame = ttk.Frame(self.root, padding=(10, 8, 10, 0))
-        frame.pack(fill="x")
-        group = ttk.Frame(frame)
-        group.pack(side="right")
-        self._lang_buttons = []
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+
+        lang_row = QHBoxLayout()
+        lang_row.addStretch()
+        self._lang_buttons = {}
         for code, text in (("fr", "FR"), ("en", "EN")):
-            btn = ttk.Button(group, text=text, width=4, command=lambda c=code: self._set_lang(c))
-            btn.pack(side="left")
-            self._lang_buttons.append((btn, code))
+            btn = QPushButton(text)
+            btn.setFixedWidth(36)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda _checked=False, c=code: self._set_lang(c))
+            lang_row.addWidget(btn)
+            self._lang_buttons[code] = btn
+        root.addLayout(lang_row)
 
-    def _build_interval_row(self) -> None:
-        frame = ttk.Frame(self.root, padding=10)
-        frame.pack(fill="x")
-        label = ttk.Label(frame)
-        label.pack(side="left")
-        self._register(label, "interval_label")
-        self.interval_var = tk.StringVar(value=str(self.config.get("poll_interval_seconds", 60)))
-        ttk.Entry(frame, textvariable=self.interval_var, width=8).pack(side="left", padx=6)
+        self.autostart_check = QCheckBox()
+        self.autostart_check.setChecked(autostart_manager.is_enabled())
+        self._register(self.autostart_check, "autostart_label")
+        root.addWidget(self.autostart_check)
 
-    def _build_autostart_row(self) -> None:
-        frame = ttk.Frame(self.root, padding=(10, 0))
-        frame.pack(fill="x")
-        self.autostart_var = tk.BooleanVar(value=autostart_manager.is_enabled())
-        check = ttk.Checkbutton(frame, variable=self.autostart_var)
-        check.pack(side="left")
-        self._register(check, "autostart_label")
+        self.table = QTableWidget(0, 6)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.setMinimumHeight(200)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        self.table.setColumnWidth(COL_ACTIVE, 50)
+        self.table.setColumnWidth(COL_KIND, 120)
+        self.table.setColumnWidth(COL_NAME, 180)
+        self.table.setColumnWidth(COL_URL, 330)
+        self.table.setColumnWidth(COL_INTERVAL, 80)
+        self.table.setColumnWidth(COL_REMOVE, 30)
+        root.addWidget(self.table)
 
-    def _build_feed_list(self) -> None:
-        header = ttk.Frame(self.root, padding=(10, 8, 10, 2))
-        header.pack(fill="x")
-        active_label = ttk.Label(header, width=5)
-        active_label.pack(side="left")
-        self._register(active_label, "header_active")
-        kind_label = ttk.Label(header, width=15)
-        kind_label.pack(side="left")
-        self._register(kind_label, "header_kind")
-        name_label = ttk.Label(header, width=21)
-        name_label.pack(side="left")
-        self._register(name_label, "header_name")
-        url_label = ttk.Label(header, width=32)
-        url_label.pack(side="left")
-        self._register(url_label, "header_url")
-        interval_label = ttk.Label(header, width=11)
-        interval_label.pack(side="left")
-        self._register(interval_label, "header_interval")
-
-        outer = ttk.Frame(self.root, padding=(10, 0))
-        outer.pack(fill="both", expand=True)
-
-        canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        self.feed_container = ttk.Frame(canvas)
-
-        self.feed_container.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=self.feed_container, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        add_frame = ttk.Frame(self.root, padding=10)
-        add_frame.pack(fill="x")
-        add_button = ttk.Button(add_frame, command=lambda: self._add_row())
-        add_button.pack(side="left")
+        add_row = QHBoxLayout()
+        add_button = QPushButton()
+        add_button.clicked.connect(lambda: self._add_row())
         self._register(add_button, "add_feed_button")
+        add_row.addWidget(add_button)
+        add_row.addStretch()
+        root.addLayout(add_row)
 
-        note = ttk.Label(self.root, padding=(10, 0, 10, 10), wraplength=780)
-        note.pack(fill="x")
+        note = QLabel()
+        note.setWordWrap(True)
         self._register(note, "note_text")
+        root.addWidget(note)
+
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        save_button = QPushButton()
+        save_button.clicked.connect(self.on_save)
+        self._register(save_button, "save_button")
+        save_row.addWidget(save_button)
+        root.addLayout(save_row)
 
     def _add_row(self, key: str = "", label: str = "", url: str = "", enabled: bool = False,
                  kind: str = DEFAULT_KIND, interval_seconds: int = None) -> None:
-        row = FeedRow(self.feed_container, self._remove_row, key=key, label=label, url=url,
-                      enabled=enabled, kind=kind, interval_seconds=interval_seconds)
-        self.rows.append(row)
+        row = self.table.rowCount()
+        self.table.insertRow(row)
 
-    def _remove_row(self, row: FeedRow) -> None:
-        row.destroy()
-        self.rows.remove(row)
+        active_cell = QWidget()
+        active_layout = QHBoxLayout(active_cell)
+        active_layout.setAlignment(Qt.AlignCenter)
+        active_layout.setContentsMargins(0, 0, 0, 0)
+        checkbox = QCheckBox()
+        checkbox.setChecked(enabled)
+        checkbox._feed_key = key
+        active_layout.addWidget(checkbox)
+        self.table.setCellWidget(row, COL_ACTIVE, active_cell)
 
-    def _build_buttons(self) -> None:
-        frame = ttk.Frame(self.root, padding=10)
-        frame.pack(fill="x")
-        save_button = ttk.Button(frame, command=self.on_save)
-        save_button.pack(side="right")
-        self._register(save_button, "save_button")
+        combo = QComboBox()
+        combo.addItems(list(KIND_LABELS.values()))
+        combo.setCurrentText(KIND_LABELS.get(kind, kind))
+        self.table.setCellWidget(row, COL_KIND, combo)
+
+        name_edit = QLineEdit(label)
+        self.table.setCellWidget(row, COL_NAME, name_edit)
+
+        url_edit = QLineEdit(url)
+        # Sans ca, le curseur (place en fin de texte a la construction) fait
+        # scroller le champ pour rester visible : on ne voit que la fin de
+        # l'URL au lieu du debut.
+        url_edit.setCursorPosition(0)
+        self.table.setCellWidget(row, COL_URL, url_edit)
+
+        # Auto : le spin box suit le defaut du type tant que l'utilisateur ne
+        # l'a pas modifie lui-meme.
+        interval_auto = {"value": interval_seconds is None}
+        interval_spin = QSpinBox()
+        interval_spin.setRange(5, 86400)
+        interval_spin.setValue(interval_seconds or KIND_INTERVALS.get(kind, 60))
+        interval_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.table.setCellWidget(row, COL_INTERVAL, interval_spin)
+
+        def on_kind_change(text, interval_auto=interval_auto, interval_spin=interval_spin):
+            if interval_auto["value"]:
+                interval_spin.blockSignals(True)
+                interval_spin.setValue(KIND_INTERVALS.get(KIND_BY_LABEL.get(text, DEFAULT_KIND), 60))
+                interval_spin.blockSignals(False)
+
+        combo.currentTextChanged.connect(on_kind_change)
+        interval_spin.valueChanged.connect(lambda _v, a=interval_auto: a.update(value=False))
+
+        remove_button = QPushButton("x")
+        remove_button.setFixedWidth(24)
+        remove_button.clicked.connect(lambda: self._remove_row(remove_button))
+        self.table.setCellWidget(row, COL_REMOVE, remove_button)
+
+    def _remove_row(self, button: QPushButton) -> None:
+        for row in range(self.table.rowCount()):
+            if self.table.cellWidget(row, COL_REMOVE) is button:
+                self.table.removeRow(row)
+                return
 
     def on_save(self) -> None:
-        try:
-            interval = int(self.interval_var.get())
-            if interval < 5:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror(self.t("error_title"), self.t("error_interval_msg"))
-            return
-
         existing_keys: set = set()
         feeds = []
-        for row in self.rows:
-            label = row.label_var.get().strip()
-            url = row.url_var.get().strip()
+        for row in range(self.table.rowCount()):
+            checkbox = self.table.cellWidget(row, COL_ACTIVE).findChild(QCheckBox)
+            combo = self.table.cellWidget(row, COL_KIND)
+            name_edit = self.table.cellWidget(row, COL_NAME)
+            url_edit = self.table.cellWidget(row, COL_URL)
+            interval_spin = self.table.cellWidget(row, COL_INTERVAL)
+
+            label = name_edit.text().strip()
+            url = url_edit.text().strip()
             if not label and not url:
                 continue
-            key = row.key or slugify(label, existing_keys)
+            key = getattr(checkbox, "_feed_key", "") or slugify(label, existing_keys)
+            # Reaffecte au widget : sans ca, une ligne neuve (pas encore
+            # rechargee depuis config.json) se voit generer une NOUVELLE cle
+            # a chaque Sauvegarder si son nom a change entre-temps, perdant
+            # l'historique de dedup de la precedente.
+            checkbox._feed_key = key
             existing_keys.add(key)
-            row_interval = row.interval_var.get().strip()
             feeds.append({
                 "key": key,
                 "label": label or key,
                 "url": url,
-                "enabled": row.enabled_var.get(),
-                "kind": row.kind,
-                "interval_seconds": int(row_interval) if row_interval.isdigit() else None,
+                "enabled": checkbox.isChecked(),
+                "kind": KIND_BY_LABEL.get(combo.currentText(), DEFAULT_KIND),
+                "interval_seconds": interval_spin.value(),
             })
 
-        self.config["poll_interval_seconds"] = interval
         self.config["feeds"] = feeds
         self.config["lang"] = self.lang
         save_config(self.config)
 
         try:
-            wants_autostart = self.autostart_var.get()
+            wants_autostart = self.autostart_check.isChecked()
             currently_enabled = autostart_manager.is_enabled()
             if wants_autostart and not currently_enabled:
                 autostart_manager.enable()
             elif not wants_autostart and currently_enabled:
                 autostart_manager.disable()
         except Exception as exc:
-            messagebox.showerror(self.t("autostart_error_title"), self.t("autostart_error_msg", error=exc))
+            QMessageBox.critical(self, self.t("autostart_error_title"), self.t("autostart_error_msg", error=exc))
             return
 
-        messagebox.showinfo(self.t("ok_title"), self.t("ok_msg"))
+        QMessageBox.information(self, self.t("ok_title"), self.t("ok_msg"))
 
 
 def main() -> None:
     config = load_config()
-    root = tk.Tk()
-    SettingsApp(root, config)
-    root.mainloop()
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(ICON_FILE)))
+    window = SettingsWindow(config)
+    window.show()
+    app.exec()
 
 
 if __name__ == "__main__":

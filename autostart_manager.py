@@ -26,8 +26,8 @@ MAC_LABEL = "com.nico.watch2notif"
 def _notifier_command() -> list:
     """Commande a lancer pour demarrer le poller de fond, adaptee selon
     qu'on tourne depuis les sources ou depuis le bundle fige : dans ce
-    dernier cas, watch2notif.exe se trouve a cote de l'executable courant
-    (watch2notif-settings.exe si on est appele depuis le panneau de reglage)."""
+    dernier cas, watch2notif.exe (executable unique, poller + panneau de
+    reglage via --settings) se trouve a cote de l'executable courant."""
     if frozen():
         suffix = ".exe" if platform.system() == "Windows" else ""
         binary = Path(sys.executable).parent / f"watch2notif{suffix}"

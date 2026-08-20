@@ -8,3 +8,4 @@ build_venv/
 build/
 dist/
 *.log
+.watch2notif.lock

@@ -21,19 +21,27 @@ dans `providers/`, rien d'autre a toucher.
 - `notifier.py` : boucle de fond, poll les sources activees dans
   `config.json`, chacune avec son propre intervalle, notification
   desktop cliquable (ouvre le lien de la source) sur chaque nouvelle
-  entree. Etat "deja vu" garde par source dans `state/`. Icone de tray
-  (pause du polling, ouverture de `config.json`, quitter) via `pystray` ;
-  verifie la page de releases GitHub toutes les 6h et ajoute une entree
-  de menu + une notification desktop unique quand une nouvelle version
-  sort (`update_check.py`, pas d'auto-mise a jour, juste un signalement).
+  entree. Etat "deja vu" garde par source dans `state/`. C'est aussi le
+  point d'entree unique du binaire construit : une icone de tray
+  (`QSystemTrayIcon`) propose la pause du polling, l'ouverture du panneau
+  de reglage, un lien d'aide GitHub, et quitter ; verifie la page de
+  releases GitHub toutes les 6h et ajoute une entree de menu + une
+  notification desktop unique quand une nouvelle version sort
+  (`update_check.py`, pas d'auto-mise a jour, juste un signalement).
 - `providers/` : un module par type de source (`rss.py`,
   `github_issues.py`), chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
   change.
-- `settings.py` : panneau de reglage (tkinter, stdlib, aucune dependance
-  supplementaire) pour ajouter/retirer des sources, choisir leur type,
-  regler leur intervalle de polling individuel, et activer l'autostart.
-  Bilingue FR/EN, bascule en haut a droite.
+- `settings.py` : panneau de reglage (Qt/PySide6) pour ajouter/retirer
+  des sources, choisir leur type, regler leur intervalle de polling
+  individuel, et activer l'autostart. Bilingue FR/EN, bascule en haut a
+  droite. Colonnes du tableau redimensionnables nativement a la souris.
+  Lancable seul (`python settings.py`), via `notifier.py --settings`
+  (son propre sous-processus, pour un raccourci ou un usage CLI), ou
+  depuis l'entree "Reglages..." du tray, qui l'ouvre directement dans le
+  processus du tray (une seule appli Qt, une seule boucle d'evenements
+  pour tout le binaire, voir le commentaire en tete de
+  `watch2notif.spec`).
 - `notify_backend.py` : backend de notification par OS - `win11toast`
   (Windows, toast WinRT moderne, bon nom d'appli, cliquable), `pync`
   (Mac, via terminal-notifier, cliquable), `plyer` (Linux, pas encore
@@ -58,9 +66,10 @@ python notifier.py   # lancer la surveillance
 ### Binaire autonome
 
 Chaque release fournit des bundles pre-construits (Windows/Linux/Mac) sur
-la page [Releases](../../releases), sans Python a installer :
-`watch2notif-settings` (panneau de reglage) et `watch2notif` (poller de
-fond).
+la page [Releases](../../releases), sans Python a installer : un seul
+executable, `watch2notif`. Le lancer demarre la surveillance ; le panneau
+de reglage s'ouvre depuis son icone de tray ("Reglages...") ou avec
+`watch2notif --settings`.
 
 ## Construire le bundle soi-meme
 
@@ -69,7 +78,7 @@ python build.py
 ```
 
 Cree un environnement de construction isole (`build_venv/`) et produit
-`dist/watch2notif/` avec les deux executables. Voir
+`dist/watch2notif/` avec l'executable. Voir
 `.github/workflows/release.yml` pour la construction automatisee sur les
 trois OS a chaque etiquette `v*`.
 

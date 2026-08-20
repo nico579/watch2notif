@@ -2,6 +2,9 @@ feedparser
 win11toast; sys_platform == "win32"
 pync; sys_platform == "darwin"
 plyer; sys_platform == "linux"
-pystray
+PySide6
+# Pas importe par le code : PyInstaller s'en sert au moment de la
+# construction pour convertir assets/watch2notif.png en icone .exe/.icns
+# native (watch2notif.spec). Rien n'y fait reference a l'execution, donc
+# ca ne finit pas dans le bundle.
 Pillow
-python-xlib; sys_platform == "linux"

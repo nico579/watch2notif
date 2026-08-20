@@ -20,16 +20,24 @@ are added as a `providers/` module, nothing else to touch.
 - `notifier.py`: background loop, polls the sources enabled in
   `config.json`, each on its own interval, fires a desktop notification
   (clickable, opens the source's link) for each new entry. Per-source
-  "already seen" state kept in `state/`. Tray icon (pause polling, open
-  `config.json`, quit) via `pystray`; checks the GitHub releases page
-  every 6h and adds a menu entry + one desktop notification when a newer
-  version is out (`update_check.py`, no self-update, just a heads-up).
+  "already seen" state kept in `state/`. Also the single entry point of
+  the built binary: a tray icon (`QSystemTrayIcon`) offers pause polling,
+  opening the settings panel, a GitHub help link, and quit; checks the
+  GitHub releases page every 6h and adds a menu entry + one desktop
+  notification when a newer version is out (`update_check.py`, no
+  self-update, just a heads-up).
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`),
   each exposing `fetch_entries(source) -> list[Entry]`. Adding a new
   source type means adding a module here, nothing else changes.
-- `settings.py`: settings panel (tkinter, stdlib, no extra dependency) to
-  add/remove sources, pick their type, set per-source polling interval,
-  and toggle autostart with the system. Bilingual FR/EN, toggle top-right.
+- `settings.py`: settings panel (Qt/PySide6) to add/remove sources, pick
+  their type, set per-source polling interval, and toggle autostart with
+  the system. Bilingual FR/EN, toggle top-right. Native, user-resizable
+  table columns. Runnable standalone (`python settings.py`), via
+  `notifier.py --settings` (its own subprocess, for a shortcut or CLI
+  use), or from the tray's "Settings..." item, which opens it directly
+  in the tray's own process (one Qt app, one event loop for the whole
+  binary — mixing Qt with a separate tray library broke at startup, see
+  the comment at the top of `watch2notif.spec`).
 - `notify_backend.py`: notification backend per OS — `win11toast`
   (Windows, modern WinRT toast, correct app name, clickable), `pync`
   (Mac, via terminal-notifier, clickable), `plyer` (Linux, not clickable
@@ -53,9 +61,9 @@ python notifier.py   # start watching
 ### Standalone binary
 
 Each release ships pre-built bundles (Windows/Linux/Mac) on the
-[Releases](../../releases) page, no Python required:
-`watch2notif-settings` (settings panel) and `watch2notif` (background
-poller).
+[Releases](../../releases) page, no Python required: a single executable,
+`watch2notif`. Run it to start watching; open the settings panel from its
+tray icon ("Settings...") or with `watch2notif --settings`.
 
 ## Building the bundle yourself
 
@@ -64,7 +72,7 @@ python build.py
 ```
 
 Creates an isolated build environment (`build_venv/`) and produces
-`dist/watch2notif/` with both executables. See `.github/workflows/release.yml`
+`dist/watch2notif/` with the executable. See `.github/workflows/release.yml`
 for the automated build across the three OSes on every `v*` tag.
 
 ## Sources

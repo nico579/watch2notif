@@ -48,28 +48,19 @@ jobs:
         include:
           - os: windows-latest
             notifier: dist/watch2notif/watch2notif.exe
-            settings: dist/watch2notif/watch2notif-settings.exe
           - os: ubuntu-22.04
             notifier: dist/watch2notif/watch2notif
-            settings: dist/watch2notif/watch2notif-settings
           - os: macos-latest
             notifier: dist/watch2notif/watch2notif
-            settings: dist/watch2notif/watch2notif-settings
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Dependances systeme pour tkinter (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-tk
-
       - name: Construire le bundle
         run: python build.py
 
-      - name: Verifier que les deux executables existent
+      - name: Verifier que l'executable existe
         shell: bash
-        run: |
-          test -f "${{ matrix.notifier }}" || { echo "notifier manquant"; exit 1; }
-          test -f "${{ matrix.settings }}" || { echo "settings manquant"; exit 1; }
+        run: test -f "${{ matrix.notifier }}" || { echo "notifier manquant"; exit 1; }

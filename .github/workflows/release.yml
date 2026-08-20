@@ -44,25 +44,35 @@ jobs:
             archive: zip
 
     steps:
+      # Sans ref explicite, un declenchement manuel (workflow_dispatch)
+      # checkoute la branche par defaut, pas l'etiquette saisie dans le
+      # formulaire : la release publierait alors le code de master sous le
+      # nom de l'etiquette au lieu du commit qu'elle designe reellement.
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-
-      - name: Dependances systeme pour tkinter (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-tk
 
       # Le meme build.py qu'en local : une seule recette a maintenir, et ce
       # qui est publie est exactement ce qu'on peut reproduire chez soi.
       - name: Construire le bundle
         run: python build.py
 
-      - name: Empaqueter (zip)
-        if: matrix.archive == 'zip'
+      - name: Empaqueter (zip, Windows)
+        if: matrix.archive == 'zip' && runner.os == 'Windows'
         shell: bash
         run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" watch2notif || zip -r "${{ matrix.asset }}.zip" watch2notif
+
+      - name: Empaqueter (zip, macOS)
+        # watch2notif.spec produit une vraie .app (cible BUNDLE) sur macOS,
+        # a cote du dossier watch2notif/ ordinaire : c'est elle qu'on
+        # publie. -y preserve les liens symboliques du bundle (non teste,
+        # pas de Mac ici : a verifier sur un vrai build).
+        if: matrix.archive == 'zip' && runner.os == 'macOS'
+        run: cd dist && zip -r -y "${{ matrix.asset }}.zip" watch2notif.app
 
       - name: Empaqueter (tar.gz)
         if: matrix.archive == 'tar'
