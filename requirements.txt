@@ -1,10 +1,18 @@
-feedparser
-win11toast; sys_platform == "win32"
+# Versions figees sur les paquets verifies (testes ici, sur Windows) :
+# build.py cree un venv neuf a chaque construction, sans pin la version
+# resolue peut driver d'une reconstruction a l'autre (mois d'ecart, un
+# nouveau majeur sort) et rendre le bundle plus "reproductible d'une
+# machine a l'autre" que "reproductible d'une construction a l'autre".
+# pync/plyer restent sans version : jamais installes/testes sur cette
+# machine (Windows), les figer a l'aveugle risquerait de coincer sur une
+# version cassee plutot que d'aider.
+feedparser==6.0.14
+win11toast==0.36.3; sys_platform == "win32"
 pync; sys_platform == "darwin"
 plyer; sys_platform == "linux"
-PySide6
+PySide6==6.11.2
 # Pas importe par le code : PyInstaller s'en sert au moment de la
 # construction pour convertir assets/watch2notif.png en icone .exe/.icns
 # native (watch2notif.spec). Rien n'y fait reference a l'execution, donc
 # ca ne finit pas dans le bundle.
-Pillow
+Pillow==12.3.0

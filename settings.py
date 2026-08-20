@@ -20,6 +20,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QHBoxLayout,
@@ -117,7 +118,7 @@ class SettingsWindow(QWidget):
             self.t("header_url"), self.t("header_interval"), "",
         ])
         for code, btn in self._lang_buttons.items():
-            btn.setDown(code == self.lang)
+            btn.setChecked(code == self.lang)
 
     def _set_lang(self, code: str) -> None:
         self.lang = code
@@ -129,11 +130,17 @@ class SettingsWindow(QWidget):
         lang_row = QHBoxLayout()
         lang_row.addStretch()
         self._lang_buttons = {}
+        # setChecked() (etat persistant) + groupe exclusif, pas setDown()
+        # (etat visuel transitoire, meant pour un clic maintenu) : sans ca
+        # les deux boutons pouvaient rester enfonces en meme temps.
+        lang_group = QButtonGroup(self)
+        lang_group.setExclusive(True)
         for code, text in (("fr", "FR"), ("en", "EN")):
             btn = QPushButton(text)
             btn.setFixedWidth(36)
             btn.setCheckable(True)
             btn.clicked.connect(lambda _checked=False, c=code: self._set_lang(c))
+            lang_group.addButton(btn)
             lang_row.addWidget(btn)
             self._lang_buttons[code] = btn
         root.addLayout(lang_row)
