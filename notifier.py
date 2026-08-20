@@ -160,7 +160,7 @@ def poll_feed(feed: dict) -> None:
         print(f"[{label}] {sent} nouvelle(s) notif(s) envoyee(s).")
 
 
-def poll_loop(pause_event: threading.Event, update_state: dict, lang: str) -> None:
+def poll_loop(pause_event: threading.Event, update_state: dict) -> None:
     STATE_DIR.mkdir(exist_ok=True)
     print("watch2notif demarre.")
 
@@ -179,6 +179,7 @@ def poll_loop(pause_event: threading.Event, update_state: dict, lang: str) -> No
         # normal - constate en revue de code, pas en test.
         try:
             config = load_config()
+            lang = config.get("lang") or i18n.detect_default_lang()
             default_interval = config.get("poll_interval_seconds", 60)
             active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
 
@@ -250,6 +251,10 @@ class TrayApp:
         self.tray.show()
 
     def _rebuild_menu(self) -> None:
+        # Relu a chaque ouverture (pas seulement au demarrage) : sinon un
+        # changement de langue fait dans les reglages ne se voit dans le
+        # tray qu'au prochain redemarrage de l'appli.
+        self.lang = load_config().get("lang") or i18n.detect_default_lang()
         self.menu.clear()
 
         pause_action = QAction(i18n.t("tray_pause", self.lang), self.menu, checkable=True)
@@ -330,7 +335,7 @@ def main() -> None:
     # avant) - constate en debuggant ce fichier meme.
     tray_app = TrayApp(lang, pause_event, update_state)  # noqa: F841
 
-    threading.Thread(target=poll_loop, args=(pause_event, update_state, lang), daemon=True).start()
+    threading.Thread(target=poll_loop, args=(pause_event, update_state), daemon=True).start()
 
     app.exec()
 
