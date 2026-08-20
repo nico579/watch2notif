@@ -1,6 +1,6 @@
-"""Forme commune d'une entree, quelle que soit la source. Imite l'API des
-entrees feedparser (.id, .get()) pour que notifier.py reste ecrit une
-seule fois, sans branchement selon le provider."""
+"""Common shape for an entry, regardless of the source. Mimics the
+feedparser entry API (.id, .get()) so notifier.py only needs to be
+written once, with no branching per provider."""
 
 
 class Entry:

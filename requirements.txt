@@ -2,3 +2,6 @@ feedparser
 win11toast; sys_platform == "win32"
 pync; sys_platform == "darwin"
 plyer; sys_platform == "linux"
+pystray
+Pillow
+python-xlib; sys_platform == "linux"

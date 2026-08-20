@@ -1,7 +1,6 @@
-"""Provider generique pour n'importe quel flux RSS/Atom (feedparser gere
-les deux formats de facon transparente). Retourne directement les entrees
-feedparser : elles supportent deja .id et .get(), pas besoin de les
-adapter via providers.base.Entry."""
+"""Generic provider for any RSS/Atom feed (feedparser handles both formats
+transparently). Returns feedparser entries directly: they already support
+.id and .get(), no need to adapt them through providers.base.Entry."""
 import feedparser
 
 LABEL = "RSS/Atom"

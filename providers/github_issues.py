@@ -1,12 +1,12 @@
-"""Poll GitHub's public REST API for open issues on a repo, sans passer
-par un flux RSS (GitHub a retire celui des issues en 2023). L'API REST
-reste ouverte pour les repos publics, meme sans authentification.
+"""Poll GitHub's public REST API for open issues on a repo, instead of
+going through an RSS feed (GitHub removed the issues one in 2023). The
+REST API stays open for public repos, even without authentication.
 
-Rate limit : 60 requetes/heure par IP sans token, 5000/heure avec un
-token (variable d'environnement GITHUB_TOKEN, ex: `gh auth token`). Avec
-un poll toutes les 60s, un seul flux sans token consomme deja toute la
-limite : prevoir un intervalle plus long pour ce type de flux (champ
-"intervalle" par flux dans settings.py).
+Rate limit: 60 requests/hour per IP without a token, 5000/hour with one
+(GITHUB_TOKEN environment variable, e.g. `gh auth token`). At a poll
+every 60s, a single feed without a token already burns through the whole
+limit: plan a longer interval for this kind of feed (per-feed "interval"
+field in settings.py).
 """
 import json
 import os
@@ -39,7 +39,7 @@ def fetch_entries(repo: str) -> list:
     entries = []
     for item in data:
         if "pull_request" in item:
-            continue  # /issues renvoie aussi les PR, on ne garde que les vraies issues
+            continue  # /issues also returns PRs, keep only actual issues
         body = (item.get("body") or "").strip().replace("\n", " ")
         entries.append(Entry(
             id=str(item["id"]),

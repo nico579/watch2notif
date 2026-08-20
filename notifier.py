@@ -1,14 +1,24 @@
 """Poll the sources enabled in config.json (RSS/Atom feeds, GitHub issues,
 see providers/) and fire a desktop notification for anything new.
 Cross-platform (Windows/Linux/Mac). Settings (which sources, intervals)
-are edited via settings.py.
+are edited via settings.py. Runs the polling in a background thread and
+a system tray icon (pause/quit) on the main thread.
 """
 import json
+import os
+import platform
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
+import pystray
+from PIL import Image, ImageDraw
+
+import i18n
 import notify_backend
+import update_check
 from providers import DEFAULT_KIND, PROVIDERS
 
 # __file__ pointe vers le dossier d'extraction temporaire de PyInstaller
@@ -97,16 +107,18 @@ def poll_feed(feed: dict) -> None:
         print(f"[{label}] {len(new_entries)} nouvelle(s) notif(s) envoyee(s).")
 
 
-def main() -> None:
-    if not CONFIG_FILE.exists():
-        sys.exit("config.json manquant. Lance settings.py pour le creer.")
-
+def poll_loop(pause_event: threading.Event, update_state: dict, lang: str) -> None:
     STATE_DIR.mkdir(exist_ok=True)
-    print("watch2notif demarre. Ctrl+C pour arreter.")
+    print("watch2notif demarre.")
 
     next_due: dict = {}
+    notified_version = None
 
     while True:
+        if pause_event.is_set():
+            time.sleep(5)
+            continue
+
         config = load_config()
         default_interval = config.get("poll_interval_seconds", 60)
         active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
@@ -126,7 +138,102 @@ def main() -> None:
                 print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
             next_due[key] = now + interval
 
+        info = update_check.disponible(BASE_DIR)
+        update_state["info"] = info
+        if info and info["version"] != notified_version:
+            notified_version = info["version"]
+            notify_backend.notify(
+                title=i18n.t("update_notif_title", lang),
+                message=i18n.t("update_notif_body", lang, version=info["version"], current=update_check.VERSION),
+                url=info.get("page") or "",
+            )
+            print(f"nouvelle version disponible: {info['version']}")
+
         time.sleep(5)
+
+
+def _build_tray_icon_image() -> Image.Image:
+    """Icone dessinee a la volee (pas d'asset .ico dans le repo) : un
+    oeil stylise, coherent avec l'idee de "watch"."""
+    size = 64
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((2, 14, size - 2, size - 14), fill=(30, 144, 255, 255))
+    draw.ellipse((size // 2 - 12, 12, size // 2 + 12, size - 12), fill=(255, 255, 255, 255))
+    draw.ellipse((size // 2 - 6, 18, size // 2 + 6, size - 18), fill=(30, 30, 30, 255))
+    return image
+
+
+def open_config_file() -> None:
+    if platform.system() == "Windows":
+        os.startfile(CONFIG_FILE)
+    elif platform.system() == "Darwin":
+        subprocess.run(["open", str(CONFIG_FILE)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(CONFIG_FILE)], check=False)
+
+
+def open_release_page(url: str) -> None:
+    if not url:
+        return
+    if platform.system() == "Windows":
+        os.startfile(url)
+    elif platform.system() == "Darwin":
+        subprocess.run(["open", url], check=False)
+    else:
+        subprocess.run(["xdg-open", url], check=False)
+
+
+def run_tray(lang: str, pause_event: threading.Event, update_state: dict) -> None:
+    def toggle_pause(icon, item):
+        if pause_event.is_set():
+            pause_event.clear()
+        else:
+            pause_event.set()
+
+    def on_open_config(icon, item):
+        try:
+            open_config_file()
+        except Exception as exc:
+            print(f"impossible d'ouvrir config.json: {exc}")
+
+    def on_open_release(icon, item):
+        info = update_state.get("info") or {}
+        try:
+            open_release_page(info.get("page"))
+        except Exception as exc:
+            print(f"impossible d'ouvrir la page de release: {exc}")
+
+    def on_quit(icon, item):
+        icon.stop()
+
+    def menu_items():
+        yield pystray.MenuItem(i18n.t("tray_pause", lang), toggle_pause, checked=lambda item: pause_event.is_set())
+        yield pystray.MenuItem(i18n.t("tray_open_config", lang), on_open_config)
+        info = update_state.get("info")
+        if info:
+            yield pystray.MenuItem(i18n.t("tray_update_available", lang, version=info["version"]), on_open_release)
+        yield pystray.MenuItem(i18n.t("tray_quit", lang), on_quit)
+
+    icon = pystray.Icon(
+        "watch2notif",
+        icon=_build_tray_icon_image(),
+        title="watch2notif",
+        menu=pystray.Menu(menu_items),
+    )
+    icon.run()
+
+
+def main() -> None:
+    if not CONFIG_FILE.exists():
+        sys.exit("config.json manquant. Lance settings.py pour le creer.")
+
+    lang = load_config().get("lang") or i18n.detect_default_lang()
+    pause_event = threading.Event()
+    update_state: dict = {"info": None}
+
+    threading.Thread(target=poll_loop, args=(pause_event, update_state, lang), daemon=True).start()
+    run_tray(lang, pause_event, update_state)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
-"""Textes de l'interface (FR/EN) pour settings.py. Meme esprit que le
+"""Textes de l'interface (FR/EN) pour settings.py et l'icone de tray de
+notifier.py. Meme esprit que le
 bilinguisme des autres projets (blink2video, lidar2map) : anglais par
 defaut, francais si la locale systeme le suggere, bascule manuelle
 persistee dans config.json.
@@ -45,6 +46,15 @@ STRINGS = {
     },
     "ok_title": {"en": "OK", "fr": "OK"},
     "ok_msg": {"en": "Settings saved to config.json.", "fr": "Reglages sauvegardes dans config.json."},
+    "tray_pause": {"en": "Pause polling", "fr": "Mettre en pause"},
+    "tray_open_config": {"en": "Open config file", "fr": "Ouvrir le fichier de configuration"},
+    "tray_update_available": {"en": "New version available (v{version})", "fr": "Nouvelle version disponible (v{version})"},
+    "tray_quit": {"en": "Quit", "fr": "Quitter"},
+    "update_notif_title": {"en": "watch2notif update available", "fr": "Mise a jour watch2notif disponible"},
+    "update_notif_body": {
+        "en": "Version {version} is out (currently running {current}). Click to see the release.",
+        "fr": "La version {version} est sortie (version actuelle : {current}). Clique pour voir la release.",
+    },
 }
 
 

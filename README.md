@@ -20,7 +20,10 @@ are added as a `providers/` module, nothing else to touch.
 - `notifier.py`: background loop, polls the sources enabled in
   `config.json`, each on its own interval, fires a desktop notification
   (clickable, opens the source's link) for each new entry. Per-source
-  "already seen" state kept in `state/`.
+  "already seen" state kept in `state/`. Tray icon (pause polling, open
+  `config.json`, quit) via `pystray`; checks the GitHub releases page
+  every 6h and adds a menu entry + one desktop notification when a newer
+  version is out (`update_check.py`, no self-update, just a heads-up).
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`),
   each exposing `fetch_entries(source) -> list[Entry]`. Adding a new
   source type means adding a module here, nothing else changes.
@@ -88,6 +91,30 @@ per IP without a token, 5000/hour with one (set the `GITHUB_TOKEN`
 environment variable, e.g. from `gh auth token`). Prefer a longer
 per-source interval for this type (a few minutes) to stay under the
 unauthenticated limit.
+
+## Adding a source type
+
+A provider is a module in `providers/` exposing two things:
+
+- `LABEL`: display name shown in the settings panel's source-type list.
+- `fetch_entries(source) -> list`: takes the source string the user
+  entered (a URL, `owner/repo`...) and returns the current list of
+  entries. Each entry needs `.id` and `.get(key, default)`, the shape
+  `notifier.py` relies on to detect new entries and pull `title`,
+  `author`, `link`, `summary`.
+
+`SOURCE_HINT` is optional: placeholder text shown in the settings panel
+next to the source input field.
+
+If the underlying data already comes as objects with `.id`/`.get()`
+(like feedparser entries in `rss.py`), return them directly. Otherwise,
+wrap each item in `providers.base.Entry(id, title, author, link,
+summary)`, as `github_issues.py` does for GitHub's JSON API.
+
+Then register the module in `providers/__init__.py`'s `PROVIDERS` dict
+(key = internal kind, value = the module). Nothing else changes:
+`notifier.py` and `settings.py` pick up any registered provider through
+`PROVIDERS`, with no per-provider branching.
 
 ## Existing alternatives
 

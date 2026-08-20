@@ -21,7 +21,11 @@ dans `providers/`, rien d'autre a toucher.
 - `notifier.py` : boucle de fond, poll les sources activees dans
   `config.json`, chacune avec son propre intervalle, notification
   desktop cliquable (ouvre le lien de la source) sur chaque nouvelle
-  entree. Etat "deja vu" garde par source dans `state/`.
+  entree. Etat "deja vu" garde par source dans `state/`. Icone de tray
+  (pause du polling, ouverture de `config.json`, quitter) via `pystray` ;
+  verifie la page de releases GitHub toutes les 6h et ajoute une entree
+  de menu + une notification desktop unique quand une nouvelle version
+  sort (`update_check.py`, pas d'auto-mise a jour, juste un signalement).
 - `providers/` : un module par type de source (`rss.py`,
   `github_issues.py`), chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
@@ -93,6 +97,33 @@ requetes/heure par IP sans token, 5000/heure avec un token (variable
 d'environnement `GITHUB_TOKEN`, ex: `gh auth token`). Prefere un
 intervalle plus long (quelques minutes) pour ce type de source, pour
 rester sous la limite sans token.
+
+## Ajouter un type de source
+
+Un provider est un module dans `providers/` qui expose deux choses :
+
+- `LABEL` : nom affiche dans la liste des types de source du panneau de
+  reglage.
+- `fetch_entries(source) -> list` : prend la chaine de source saisie par
+  l'utilisateur (une URL, `owner/repo`...) et renvoie la liste actuelle
+  des entrees. Chaque entree doit exposer `.id` et `.get(key, default)`,
+  la forme dont `notifier.py` a besoin pour detecter les nouvelles
+  entrees et lire `title`, `author`, `link`, `summary`.
+
+`SOURCE_HINT` est optionnel : texte indicatif affiche dans le panneau de
+reglage a cote du champ de saisie de la source.
+
+Si les donnees brutes sont deja des objets avec `.id`/`.get()` (comme
+les entrees feedparser dans `rss.py`), les renvoyer directement. Sinon,
+envelopper chaque element dans `providers.base.Entry(id, title, author,
+link, summary)`, comme le fait `github_issues.py` pour l'API JSON de
+GitHub.
+
+Enregistrer ensuite le module dans le dict `PROVIDERS` de
+`providers/__init__.py` (cle = type interne, valeur = le module). Rien
+d'autre ne change : `notifier.py` et `settings.py` recuperent tout
+provider enregistre via `PROVIDERS`, sans branchement specifique par
+provider.
 
 ## Alternatives existantes
 

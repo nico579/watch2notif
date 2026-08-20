@@ -26,10 +26,15 @@ elif sys.platform == "darwin":
 else:
     NOTIFY_HIDDEN = collect_submodules("plyer.platforms")
 
+# pystray choisit son backend de tray a l'execution selon la plateforme
+# (win32/darwin/xorg via Xlib) : meme raison que NOTIFY_HIDDEN ci-dessus,
+# l'analyse statique de PyInstaller ne detecte pas ce choix conditionnel.
+TRAY_HIDDEN = collect_submodules("pystray")
+
 notifier_analysis = Analysis(
     ["notifier.py"],
     pathex=["."],
-    hiddenimports=NOTIFY_HIDDEN,
+    hiddenimports=NOTIFY_HIDDEN + TRAY_HIDDEN,
     excludes=["tkinter", "PyInstaller", "pytest"],
     noarchive=False,
 )
