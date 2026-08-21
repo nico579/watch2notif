@@ -53,5 +53,6 @@ def fetch_entries(repo: str) -> list:
             author=(item.get("user") or {}).get("login", "?"),
             link=item.get("html_url", ""),
             summary=body[:150],
+            created=item.get("created_at", ""),
         ))
     return entries

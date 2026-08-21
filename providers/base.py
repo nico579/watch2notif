@@ -4,9 +4,15 @@ written once, with no branching per provider."""
 
 
 class Entry:
-    def __init__(self, id: str, title: str, author: str, link: str, summary: str):
+    def __init__(self, id: str, title: str, author: str, link: str, summary: str, created: str = ""):
         self.id = id
-        self._data = {"title": title, "author": author, "link": link, "summary": summary}
+        self._data = {
+            "title": title,
+            "author": author,
+            "link": link,
+            "summary": summary,
+            "created": created,
+        }
 
     def get(self, key, default=None):
         return self._data.get(key, default)

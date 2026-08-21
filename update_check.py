@@ -1,9 +1,8 @@
-"""Verifie si une nouvelle version est publiee sur GitHub, sans rien
-telecharger ni remplacer (contrairement au maj.py de blink2video) :
-watch2notif tourne en tache de fond au demarrage du systeme, se
-remplacer soi-meme en cours d'execution est un risque hors de propos
-pour ce projet. On se contente de prevenir via le systray, l'utilisateur
-va chercher la nouvelle version lui-meme sur la page de release.
+"""Verifie si une nouvelle version stable est publiee sur GitHub.
+
+Le cache conserve aussi les metadonnees minimales des assets. Elles sont
+revalidees par self_update.py au moment ou l'utilisateur accepte
+l'installation ; aucune URL arbitraire du cache n'est executee telle quelle.
 """
 import json
 import os
@@ -12,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 DEPOT = "nico579/watch2notif"
 # Prefixe par un point : state/ contient aussi un fichier par source
 # (nomme d'apres sa cle, cf notifier.state_file), et slugify() ne peut
@@ -52,6 +51,28 @@ def _interroger() -> dict:
         return json.loads(reponse.read())
 
 
+def _assets_publics(release: dict) -> list[dict]:
+    """Ne garde que les champs necessaires au telechargement/verrouillage.
+
+    Cela evite de recopier sans limite toute la reponse GitHub dans le cache
+    local, tout en conservant taille et digest pour une verification stricte.
+    """
+    assets = []
+    for raw in release.get("assets") or []:
+        if not isinstance(raw, dict):
+            continue
+        assets.append(
+            {
+                "name": raw.get("name"),
+                "browser_download_url": raw.get("browser_download_url"),
+                "size": raw.get("size"),
+                "digest": raw.get("digest"),
+                "state": raw.get("state"),
+            }
+        )
+    return assets
+
+
 def disponible(base_dir: Path, force: bool = False) -> dict:
     """La version publiee si elle est plus recente que VERSION, sinon {}.
 
@@ -77,6 +98,9 @@ def disponible(base_dir: Path, force: bool = False) -> dict:
                 "verifie": tentative,
                 "version": str(release.get("tag_name") or "").lstrip("vV"),
                 "page": release.get("html_url"),
+                "draft": bool(release.get("draft")),
+                "prerelease": bool(release.get("prerelease")),
+                "assets": _assets_publics(release),
             }
         except (urllib.error.URLError, OSError, json.JSONDecodeError, ValueError):
             # Hors ligne ou GitHub indisponible : pas grave, on garde le
@@ -89,6 +113,15 @@ def disponible(base_dir: Path, force: bool = False) -> dict:
             pass
 
     version_distante = cache.get("version") or ""
-    if version_distante and _numeros(version_distante) > _numeros(VERSION):
-        return {"version": version_distante, "page": cache.get("page")}
+    if (
+        version_distante
+        and not cache.get("draft")
+        and not cache.get("prerelease")
+        and _numeros(version_distante) > _numeros(VERSION)
+    ):
+        return {
+            "version": version_distante,
+            "page": cache.get("page"),
+            "assets": list(cache.get("assets") or []),
+        }
     return {}

@@ -56,6 +56,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verifier que le tag correspond a la version du binaire
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python -c "import os, update_check; tag=os.environ['RELEASE_TAG'].lstrip('vV'); assert tag == update_check.VERSION, f'le tag {tag} ne correspond pas a VERSION={update_check.VERSION}'"
+
       # Le meme build.py qu'en local : une seule recette a maintenir, et ce
       # qui est publie est exactement ce qu'on peut reproduire chez soi.
       - name: Construire le bundle

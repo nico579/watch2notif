@@ -15,9 +15,14 @@ of working around it. Settings opens as a plain widget in this same
 process (see run_tray's _open_settings); `--settings` (bottom of this
 file) still launches just the panel standalone, for a shortcut or CLI use.
 """
+import calendar
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import hashlib
-import os
 import json
+import math
+import os
 import platform
 import subprocess
 import sys
@@ -25,11 +30,13 @@ import threading
 import time
 from pathlib import Path
 
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 import i18n
 import notify_backend
+import self_update
 import single_instance
 import update_check
 from providers import DEFAULT_KIND, PROVIDERS
@@ -41,6 +48,12 @@ BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).r
 
 CONFIG_FILE = BASE_DIR / "config.json"
 STATE_DIR = BASE_DIR / "state"
+STATE_SCHEMA_VERSION = 2
+# Un flux peut publier une entree avec quelques minutes de retard ou plusieurs
+# entrees a la meme seconde. On ne classe silencieusement comme "remontee
+# ancienne" qu'une entree clairement anterieure au repere persiste.
+BACKFILL_GRACE_SECONDS = 5 * 60
+MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
 
 # A l'inverse de BASE_DIR : les assets embarques (watch2notif.spec, datas=)
 # vivent dans sys._MEIPASS une fois fige (le dossier _internal/ en mode
@@ -52,10 +65,11 @@ ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
 # donne pas de console au process : sys.stdout/stderr valent None, et le
 # moindre print() plante. On redirige alors vers un fichier de log a cote
 # de l'executable, seul moyen de garder une trace d'un poller silencieux.
-if sys.stdout is None:
+SELF_TEST_REQUESTED = "--self-test-version" in sys.argv[1:]
+if sys.stdout is None and not SELF_TEST_REQUESTED:
     log_file = open(BASE_DIR / "watch2notif.log", "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = log_file
-else:
+elif sys.stdout is not None:
     sys.stdout.reconfigure(line_buffering=True)
 
 
@@ -67,15 +81,82 @@ def state_file(feed_key: str) -> Path:
     return STATE_DIR / f"{feed_key}.json"
 
 
-def load_seen_ids(feed_key: str) -> set[str]:
+@dataclass
+class FeedState:
+    seen_ids: set[str] = field(default_factory=set)
+    pending_ids: set[str] = field(default_factory=set)
+    newest_timestamp: float | None = None
+    source_fingerprint: str | None = None
+    legacy: bool = False
+
+
+def _valid_timestamp(value, *, reject_far_future: bool = True) -> float | None:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(timestamp) or timestamp < 0:
+        return None
+    if reject_far_future and timestamp > time.time() + MAX_FUTURE_TIMESTAMP_SECONDS:
+        return None
+    return timestamp
+
+
+def load_feed_state(feed_key: str) -> FeedState:
     path = state_file(feed_key)
-    if path.exists():
-        return set(json.loads(path.read_text(encoding="utf-8")))
-    return set()
+    if not path.exists():
+        return FeedState()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(raw, list):
+        # Migration transparente des versions <= 0.1.1.
+        return FeedState(seen_ids={str(value) for value in raw if value}, legacy=True)
+    if not isinstance(raw, dict):
+        raise ValueError(f"format d'etat invalide pour {feed_key}")
+    seen = raw.get("seen_ids") or []
+    if not isinstance(seen, list):
+        raise ValueError(f"seen_ids invalide pour {feed_key}")
+    pending = raw.get("pending_ids") or []
+    if not isinstance(pending, list):
+        raise ValueError(f"pending_ids invalide pour {feed_key}")
+    seen_ids = {str(value) for value in seen if value}
+    return FeedState(
+        seen_ids=seen_ids,
+        pending_ids={str(value) for value in pending if value} - seen_ids,
+        # Un recul de l'horloge locale ne doit pas effacer un watermark deja
+        # valide. La garde "date trop future" ne concerne que les donnees
+        # nouvellement fournies par un flux potentiellement mal forme.
+        newest_timestamp=_valid_timestamp(raw.get("newest_timestamp"), reject_far_future=False),
+        source_fingerprint=str(raw.get("source_fingerprint") or "") or None,
+    )
+
+
+def save_feed_state(feed_key: str, state: FeedState) -> None:
+    _write_json_atomic(
+        state_file(feed_key),
+        {
+            "version": STATE_SCHEMA_VERSION,
+            "seen_ids": sorted(state.seen_ids),
+            "pending_ids": sorted(state.pending_ids - state.seen_ids),
+            "newest_timestamp": state.newest_timestamp,
+            # Empreinte seulement : une URL RSS privee ne doit jamais etre
+            # recopiee en clair dans les fichiers d'etat.
+            "source_fingerprint": state.source_fingerprint,
+        },
+    )
+
+
+def load_seen_ids(feed_key: str) -> set[str]:
+    """Compatibilite pour les appels/tests existants."""
+    return load_feed_state(feed_key).seen_ids
 
 
 def save_seen_ids(feed_key: str, seen_ids: set[str]) -> None:
-    _write_json_atomic(state_file(feed_key), sorted(seen_ids))
+    """Compatibilite : conserve le repere temporel s'il existe deja."""
+    state = load_feed_state(feed_key) if state_file(feed_key).exists() else FeedState()
+    state.seen_ids = set(seen_ids)
+    state.pending_ids.difference_update(state.seen_ids)
+    state.legacy = False
+    save_feed_state(feed_key, state)
 
 
 def _write_json_atomic(path: Path, data) -> None:
@@ -90,6 +171,12 @@ def _write_json_atomic(path: Path, data) -> None:
 def fetch_entries(feed: dict):
     provider = PROVIDERS[feed.get("kind", DEFAULT_KIND)]
     return provider.fetch_entries(feed["url"])
+
+
+def _feed_fingerprint(feed: dict) -> str:
+    kind = str(feed.get("kind") or DEFAULT_KIND)
+    url = str(feed.get("url") or "")
+    return hashlib.sha256(f"{kind}\0{url}".encode("utf-8")).hexdigest()
 
 
 TITLE_MAX_LEN = 100
@@ -120,31 +207,154 @@ def _entry_id(entry) -> str:
     garde "id" en attribut direct, pas dans les clefs que .get() lit."""
     id_ = getattr(entry, "id", None)
     if id_:
-        return id_
+        return str(id_)
     link = entry.get("link")
     if link:
-        return link
+        return str(link)
     signature = f"{entry.get('title', '')}|{entry.get('summary', '')}"
     return hashlib.sha1(signature.encode("utf-8")).hexdigest()
+
+
+def _entry_timestamp(entry) -> float | None:
+    """Horodatage UTC d'une entree RSS/API, si le provider en expose un."""
+    for key in ("published_parsed", "created_parsed", "updated_parsed"):
+        parsed = entry.get(key)
+        if parsed:
+            try:
+                timestamp = _valid_timestamp(calendar.timegm(tuple(parsed)[:9]))
+            except (TypeError, ValueError, OverflowError):
+                timestamp = None
+            if timestamp is not None:
+                return timestamp
+
+    for key in ("published", "created", "created_at", "updated"):
+        raw = entry.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, (int, float)):
+            timestamp = _valid_timestamp(raw)
+            if timestamp is not None:
+                return timestamp
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(str(raw))
+            except (TypeError, ValueError, OverflowError):
+                continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        timestamp = _valid_timestamp(parsed.timestamp())
+        if timestamp is not None:
+            return timestamp
+    return None
 
 
 def poll_feed(feed: dict) -> None:
     key, label = feed["key"], feed["label"]
     first_run = not state_file(key).exists()
-    seen_ids = load_seen_ids(key)
+    state = load_feed_state(key)
+    fingerprint = _feed_fingerprint(feed)
+    source_changed = bool(
+        state.source_fingerprint and state.source_fingerprint != fingerprint
+    )
+    fingerprint_missing = state.source_fingerprint is None
+    if source_changed:
+        # La cle UI peut rester identique apres modification URL/provider.
+        # L'ancien watermark n'a alors aucune signification pour la nouvelle
+        # source : on la re-amorce comme un premier lancement, sans rafale.
+        state = FeedState(source_fingerprint=fingerprint)
+    else:
+        state.source_fingerprint = fingerprint
 
     entries = fetch_entries(feed)
+    records = []
+    ids_in_batch = set()
+    for entry in entries:
+        entry_id = _entry_id(entry)
+        if entry_id in ids_in_batch:
+            continue
+        ids_in_batch.add(entry_id)
+        records.append((entry, entry_id, _entry_timestamp(entry)))
+    timestamps = [timestamp for _entry, _entry_id_value, timestamp in records if timestamp is not None]
+    current_newest = max(timestamps, default=None)
 
-    if first_run:
-        seen_ids.update(_entry_id(e) for e in entries)
-        save_seen_ids(key, seen_ids)
-        print(f"[{label}] premier lancement: {len(entries)} item(s) amorces, aucune notif.")
+    if first_run or source_changed:
+        state.seen_ids.update(entry_id for _entry, entry_id, _timestamp in records)
+        state.newest_timestamp = current_newest
+        state.legacy = False
+        save_feed_state(key, state)
+        reason = "source modifiee" if source_changed else "premier lancement"
+        print(f"[{label}] {reason}: {len(entries)} item(s) amorces, aucune notif.")
         return
 
-    new_entries = [e for e in entries if _entry_id(e) not in seen_ids]
+    stored_watermark = state.newest_timestamp
+    was_legacy = state.legacy
+    baseline = stored_watermark
+    if baseline is None and state.legacy:
+        known_timestamps = [
+            timestamp
+            for _entry, entry_id, timestamp in records
+            if entry_id in state.seen_ids and timestamp is not None
+        ]
+        # Le dernier ID connu encore present peut etre tres ancien dans une
+        # fenetre glissante. La date d'ecriture du state prouve que le poller
+        # etait actif plus recemment : prendre le maximum des deux evite de
+        # renotifier tous les elements intermediaires. On borne un mtime futur
+        # en cas de correction de l'horloge systeme.
+        cutoff_candidates = list(known_timestamps)
+        try:
+            state_mtime = _valid_timestamp(
+                state_file(key).stat().st_mtime,
+                reject_far_future=False,
+            )
+        except OSError:
+            state_mtime = None
+        if state_mtime is not None:
+            cutoff_candidates.append(min(state_mtime, time.time()))
+        baseline = max(cutoff_candidates, default=None)
+
+    candidates = []
+    backfilled = 0
+    state_changed = False
+    for entry, entry_id, timestamp in records:
+        if entry_id in state.seen_ids:
+            if entry_id in state.pending_ids:
+                state.pending_ids.discard(entry_id)
+                state_changed = True
+            continue
+        if entry_id in state.pending_ids:
+            candidates.append((entry, entry_id, timestamp))
+            continue
+        is_old_backfill = (
+            timestamp is not None
+            and baseline is not None
+            and timestamp < baseline - BACKFILL_GRACE_SECONDS
+        )
+        if is_old_backfill:
+            state.seen_ids.add(entry_id)
+            state.pending_ids.discard(entry_id)
+            backfilled += 1
+            state_changed = True
+        else:
+            candidates.append((entry, entry_id, timestamp))
+
+    # Tout candidat devient "en attente" avant l'appel au backend. Ainsi, un
+    # crash ou un echec de notification ne le transformera jamais en vieux
+    # backfill silencieux lorsque le watermark aura avance entre-temps.
+    for _entry, entry_id, _timestamp in candidates:
+        if entry_id not in state.pending_ids:
+            state.pending_ids.add(entry_id)
+            state_changed = True
+
+    state.newest_timestamp = baseline
+    state.legacy = False
+    if was_legacy or fingerprint_missing or state_changed or baseline != stored_watermark:
+        save_feed_state(key, state)
+
     sent = 0
-    for entry in reversed(new_entries):
-        entry_id = _entry_id(entry)
+    for entry, entry_id, timestamp in reversed(candidates):
         try:
             notify(label, entry)
         except Exception as exc:
@@ -153,19 +363,39 @@ def poll_feed(feed: dict) -> None:
         # Marquee vue seulement apres succes, et sauvee tout de suite : si une
         # notif suivante plante, celles deja envoyees ne repartent pas au
         # prochain cycle.
-        seen_ids.add(entry_id)
-        save_seen_ids(key, seen_ids)
+        state.seen_ids.add(entry_id)
+        state.pending_ids.discard(entry_id)
+        save_feed_state(key, state)
         sent += 1
+
+    if current_newest is not None:
+        next_watermark = max(
+            value for value in (state.newest_timestamp, current_newest) if value is not None
+        )
+        if next_watermark != state.newest_timestamp:
+            state.newest_timestamp = next_watermark
+            save_feed_state(key, state)
+    if backfilled:
+        print(f"[{label}] {backfilled} ancienne(s) entree(s) memorisee(s) sans notification.")
     if sent:
         print(f"[{label}] {sent} nouvelle(s) notif(s) envoyee(s).")
 
 
-def poll_loop(pause_event: threading.Event, update_state: dict) -> None:
+class UpdateSignals(QObject):
+    """Pont thread de polling/worker -> thread Qt."""
+
+    available = Signal(object)
+    prepared = Signal(object)
+    failed = Signal(object)
+
+
+def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> None:
     STATE_DIR.mkdir(exist_ok=True)
     print("watch2notif demarre.")
 
     next_due: dict = {}
     notified_version = None
+    emitted_version = object()
 
     while True:
         if pause_event.is_set():
@@ -199,7 +429,10 @@ def poll_loop(pause_event: threading.Event, update_state: dict) -> None:
                 next_due[key] = now + interval
 
             info = update_check.disponible(BASE_DIR)
-            update_state["info"] = info
+            available_version = info.get("version") if info else None
+            if available_version != emitted_version:
+                emitted_version = available_version
+                update_signals.available.emit(dict(info) if info else None)
             if info and info["version"] != notified_version:
                 notified_version = info["version"]
                 notify_backend.notify(
@@ -232,12 +465,41 @@ def open_url(url: str) -> None:
 HELP_URL = f"https://github.com/{update_check.DEPOT}#readme"
 
 
-class TrayApp:
-    def __init__(self, lang: str, pause_event: threading.Event, update_state: dict):
+UPDATE_NONE = "none"
+UPDATE_AVAILABLE = "available"
+UPDATE_PROMPTING = "prompting"
+UPDATE_DECLINED = "declined"
+UPDATE_PREPARING = "preparing"
+UPDATE_FAILED = "failed"
+
+
+class TrayApp(QObject):
+    def __init__(self, lang: str, pause_event: threading.Event, update_signals: UpdateSignals):
+        super().__init__()
         self.lang = lang
         self.pause_event = pause_event
-        self.update_state = update_state
+        self.update_signals = update_signals
+        self.update_info = None
+        self.update_status = UPDATE_NONE
+        self.update_inflight = False
+        self.prompted_versions: set[str] = set()
+        self.update_dialog = None
+        self.progress_dialog = None
+        self.error_dialog = None
         self.settings_window = None
+
+        self.update_signals.available.connect(
+            self._on_update_available,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.update_signals.prepared.connect(
+            self._on_update_prepared,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self.update_signals.failed.connect(
+            self._on_update_failed,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
         self.tray = QSystemTrayIcon(_build_tray_icon())
         self.tray.setToolTip("watch2notif")
@@ -254,7 +516,7 @@ class TrayApp:
         # Relu a chaque ouverture (pas seulement au demarrage) : sinon un
         # changement de langue fait dans les reglages ne se voit dans le
         # tray qu'au prochain redemarrage de l'appli.
-        self.lang = load_config().get("lang") or i18n.detect_default_lang()
+        self.lang = self._current_lang()
         self.menu.clear()
 
         pause_action = QAction(i18n.t("tray_pause", self.lang), self.menu, checkable=True)
@@ -266,10 +528,20 @@ class TrayApp:
         settings_action.triggered.connect(self._open_settings)
         self.menu.addAction(settings_action)
 
-        info = self.update_state.get("info")
+        info = self.update_info
         if info:
-            update_action = QAction(i18n.t("tray_update_available", self.lang, version=info["version"]), self.menu)
-            update_action.triggered.connect(lambda: open_url(info.get("page")))
+            automatic, _reason = self_update.can_install_automatically()
+            if not automatic:
+                key = "tray_update_view"
+            elif self.update_status == UPDATE_PREPARING:
+                key = "tray_update_downloading"
+            elif self.update_status == UPDATE_FAILED:
+                key = "tray_update_retry"
+            else:
+                key = "tray_update_install"
+            update_action = QAction(i18n.t(key, self.lang, version=info["version"]), self.menu)
+            update_action.setEnabled(self.update_status != UPDATE_PREPARING)
+            update_action.triggered.connect(self._open_update_from_menu)
             self.menu.addAction(update_action)
 
         help_action = QAction(i18n.t("tray_help", self.lang), self.menu)
@@ -285,6 +557,218 @@ class TrayApp:
             self.pause_event.set()
         else:
             self.pause_event.clear()
+
+    def _current_lang(self) -> str:
+        try:
+            return load_config().get("lang") or i18n.detect_default_lang()
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return self.lang or i18n.detect_default_lang()
+
+    @Slot(object)
+    def _on_update_available(self, info) -> None:
+        if not info:
+            # Ne pas arracher l'etat des mains d'une installation deja
+            # preparee si un check concurrent devient temporairement vide.
+            if not self.update_inflight:
+                self.update_info = None
+                self.update_status = UPDATE_NONE
+                self._rebuild_menu()
+            return
+
+        info = dict(info)
+        previous_version = self.update_info.get("version") if self.update_info else None
+        version = str(info.get("version") or "")
+        self.update_info = info
+        if version != previous_version and not self.update_inflight:
+            self.update_status = UPDATE_AVAILABLE
+        self._rebuild_menu()
+
+        if version and version not in self.prompted_versions and not self.update_inflight:
+            self._show_update_prompt()
+
+    @Slot()
+    def _open_update_from_menu(self) -> None:
+        if self.update_info and not self.update_inflight:
+            self._show_update_prompt()
+
+    def _show_update_prompt(self) -> bool:
+        if not self.update_info or self.update_dialog is not None:
+            return False
+        info = dict(self.update_info)
+        self.lang = self._current_lang()
+        automatic, _reason = self_update.can_install_automatically()
+        box = QMessageBox()
+        box.setWindowIcon(_build_tray_icon())
+        box.setIcon(QMessageBox.Icon.Question if automatic else QMessageBox.Icon.Information)
+        box.setWindowModality(Qt.WindowModality.ApplicationModal)
+        if automatic:
+            box.setWindowTitle(i18n.t("update_prompt_title", self.lang))
+            box.setText(
+                i18n.t(
+                    "update_prompt_body",
+                    self.lang,
+                    version=info["version"],
+                    current=update_check.VERSION,
+                )
+            )
+            accept_button = box.addButton(
+                i18n.t("update_install_button", self.lang),
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+        else:
+            box.setWindowTitle(i18n.t("update_source_title", self.lang))
+            box.setText(i18n.t("update_source_body", self.lang))
+            accept_button = box.addButton(
+                i18n.t("update_open_release_button", self.lang),
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+        box.addButton(
+            i18n.t("update_later_button", self.lang),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        box.finished.connect(
+            lambda _result, dialog=box, accepted=accept_button, install=automatic, snapshot=info:
+                self._finish_update_prompt(dialog, accepted, install, snapshot)
+        )
+        self.update_status = UPDATE_PROMPTING
+        self.update_dialog = box
+        self.prompted_versions.add(str(info.get("version") or ""))
+        box.open()
+        return True
+
+    def _finish_update_prompt(self, dialog: QMessageBox, accept_button, automatic: bool, info: dict) -> None:
+        clicked = dialog.clickedButton()
+        self.update_dialog = None
+        dialog.deleteLater()
+        current_version = (self.update_info or {}).get("version")
+        if current_version != info.get("version"):
+            self.update_status = UPDATE_AVAILABLE
+            self._rebuild_menu()
+            if current_version not in self.prompted_versions:
+                self._show_update_prompt()
+            return
+        if clicked is not accept_button:
+            self.update_status = UPDATE_DECLINED
+            self._rebuild_menu()
+            return
+        if not automatic:
+            open_url(info.get("page"))
+            self.update_status = UPDATE_DECLINED
+            self._rebuild_menu()
+            return
+        self._start_update(info)
+
+    def _start_update(self, info: dict) -> None:
+        if not self.update_info or self.update_inflight:
+            return
+        self.lang = self._current_lang()
+        version = info["version"]
+        self.update_inflight = True
+        self.update_status = UPDATE_PREPARING
+        self._rebuild_menu()
+
+        progress = QMessageBox()
+        progress.setWindowIcon(_build_tray_icon())
+        progress.setIcon(QMessageBox.Icon.Information)
+        progress.setWindowTitle(i18n.t("update_progress_title", self.lang))
+        progress.setText(i18n.t("update_progress_body", self.lang, version=version))
+        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.progress_dialog = progress
+        progress.open()
+
+        threading.Thread(target=self._prepare_update_worker, args=(version,), daemon=True).start()
+
+    def _prepare_update_worker(self, expected_version: str) -> None:
+        prepared = None
+        try:
+            # Un clic Installer force une relecture GitHub : le cache qui a
+            # servi au signalement peut etre ancien ou ne pas encore contenir
+            # digest/size (migration depuis les versions precedentes).
+            latest = update_check.disponible(BASE_DIR, force=True)
+            if not latest:
+                raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
+            if latest.get("version") != expected_version:
+                self.update_signals.failed.emit({"code": "version_changed", "info": latest})
+                return
+            prepared = self_update.prepare_update(latest, update_check.DEPOT)
+            self_update.launch_prepared_update(prepared)
+            self.update_signals.prepared.emit(prepared)
+        except self_update.UpdateError as exc:
+            if prepared is not None:
+                self_update.cleanup_prepared(prepared)
+            self.update_signals.failed.emit(exc.payload())
+        except Exception as exc:
+            if prepared is not None:
+                self_update.cleanup_prepared(prepared)
+            self.update_signals.failed.emit({"code": "prepare_failed", "detail": str(exc)})
+
+    @Slot(object)
+    def _on_update_prepared(self, prepared) -> None:
+        try:
+            self_update.commit_prepared_update(prepared)
+        except self_update.UpdateError as exc:
+            self_update.abort_prepared_update(prepared)
+            self._on_update_failed(exc.payload())
+            return
+        if self.progress_dialog is not None:
+            self.progress_dialog.done(0)
+            self.progress_dialog.deleteLater()
+            self.progress_dialog = None
+        QApplication.quit()
+
+    @Slot(object)
+    def _on_update_failed(self, error) -> None:
+        if self.progress_dialog is not None:
+            self.progress_dialog.done(0)
+            self.progress_dialog.deleteLater()
+            self.progress_dialog = None
+        self.update_inflight = False
+        if (error or {}).get("code") == "version_changed":
+            self.update_status = UPDATE_AVAILABLE
+            self._on_update_available((error or {}).get("info"))
+            return
+        self.update_status = UPDATE_FAILED
+        self._rebuild_menu()
+        self.lang = self._current_lang()
+
+        code = str((error or {}).get("code") or "prepare_failed")
+        detail = str((error or {}).get("detail") or "")
+        if detail:
+            print(f"mise a jour echouee [{code}]: {detail}")
+        if code == "download_failed":
+            error_key = "update_error_download"
+        elif code in {"integrity_failed", "unsafe_archive", "invalid_payload"}:
+            error_key = "update_error_integrity"
+        elif code in {"unsupported_target", "missing_asset", "invalid_asset", "source_mode"}:
+            error_key = "update_error_compatibility"
+        elif code in {"helper_failed", "unsafe_install"}:
+            error_key = "update_error_installer"
+        else:
+            error_key = "update_error_generic"
+        friendly_error = i18n.t(error_key, self.lang)
+        box = QMessageBox()
+        box.setWindowIcon(_build_tray_icon())
+        box.setIcon(QMessageBox.Icon.Critical)
+        box.setWindowTitle(i18n.t("update_error_title", self.lang))
+        box.setText(i18n.t("update_error_body", self.lang, error=friendly_error))
+        release_button = box.addButton(
+            i18n.t("update_open_release_button", self.lang),
+            QMessageBox.ButtonRole.ActionRole,
+        )
+        box.addButton(i18n.t("update_close_button", self.lang), QMessageBox.ButtonRole.RejectRole)
+        box.finished.connect(
+            lambda _result, dialog=box, button=release_button: self._finish_error_dialog(dialog, button)
+        )
+        self.error_dialog = box
+        box.open()
+
+    def _finish_error_dialog(self, dialog: QMessageBox, release_button) -> None:
+        if dialog.clickedButton() is release_button:
+            open_url((self.update_info or {}).get("page"))
+        self.error_dialog = None
+        dialog.deleteLater()
 
     def _open_settings(self) -> None:
         import settings
@@ -322,7 +806,7 @@ def main() -> None:
 
     lang = load_config().get("lang") or i18n.detect_default_lang()
     pause_event = threading.Event()
-    update_state: dict = {"info": None}
+    update_signals = UpdateSignals()
 
     # Sans ca, fermer la fenetre de reglages (ouverte depuis le tray)
     # quitterait toute l'appli : ce n'est pas une "fenetre principale",
@@ -333,14 +817,22 @@ def main() -> None:
     # garbage-collectes des la fin de cette ligne, et l'icone disparait
     # silencieusement (aucune erreur, isVisible() valait bien True juste
     # avant) - constate en debuggant ce fichier meme.
-    tray_app = TrayApp(lang, pause_event, update_state)  # noqa: F841
+    tray_app = TrayApp(lang, pause_event, update_signals)  # noqa: F841
 
-    threading.Thread(target=poll_loop, args=(pause_event, update_state), daemon=True).start()
+    threading.Thread(target=poll_loop, args=(pause_event, update_signals), daemon=True).start()
 
     app.exec()
 
 
 if __name__ == "__main__":
+    if "--self-test-version" in sys.argv[1:]:
+        try:
+            expected_version = sys.argv[sys.argv.index("--self-test-version") + 1]
+        except (ValueError, IndexError):
+            raise SystemExit(2)
+        if expected_version != update_check.VERSION or not ICON_FILE.is_file():
+            raise SystemExit(3)
+        raise SystemExit(0)
     if "--settings" in sys.argv[1:]:
         import settings
 

@@ -24,8 +24,11 @@ are added as a `providers/` module, nothing else to touch.
   the built binary: a tray icon (`QSystemTrayIcon`) offers pause polling,
   opening the settings panel, a GitHub help link, and quit; checks the
   GitHub releases page every 6h and adds a menu entry + one desktop
-  notification when a newer version is out (`update_check.py`, no
-  self-update, just a heads-up).
+  notification when a newer version is out. In a packaged app, the tray
+  asks whether to install it, verifies the published asset's size and
+  SHA-256, then replaces the bundle after shutdown and restarts it while
+  preserving settings and notification history (`update_check.py`,
+  `self_update.py`). A source checkout is never modified automatically.
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`),
   each exposing `fetch_entries(source) -> list[Entry]`. Adding a new
   source type means adding a module here, nothing else changes.
@@ -64,6 +67,13 @@ Each release ships pre-built bundles (Windows/Linux/Mac) on the
 [Releases](../../releases) page, no Python required: a single executable,
 `watch2notif`. Run it to start watching; open the settings panel from its
 tray icon ("Settings...") or with `watch2notif --settings`.
+
+When a compatible update is published, the tray asks before downloading
+anything. "Download and install" prepares and validates the whole new
+bundle first; watch2notif closes only when the external updater is ready,
+then restarts on the new version. If preparation, replacement, or restart
+fails, the current installation is kept or restored. Unsupported platforms
+fall back to the release page.
 
 ## Building the bundle yourself
 

@@ -141,7 +141,14 @@ def _enable_mac() -> None:
         + "    </array>\n"
         f"    <key>WorkingDirectory</key>\n    <string>{PROJECT_DIR}</string>\n"
         "    <key>RunAtLoad</key>\n    <true/>\n"
-        "    <key>KeepAlive</key>\n    <true/>\n"
+        # Relancer uniquement apres un crash. Avec KeepAlive=true, le choix
+        # "Quitter" du tray et le helper de mise a jour etaient combattus par
+        # launchd, qui redemarrait aussitot l'ancienne instance.
+        "    <key>KeepAlive</key>\n"
+        "    <dict>\n"
+        "        <key>SuccessfulExit</key>\n"
+        "        <false/>\n"
+        "    </dict>\n"
         "</dict>\n</plist>\n"
     )
     plist_file = _mac_plist_file()

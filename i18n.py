@@ -45,12 +45,87 @@ STRINGS = {
     "tray_pause": {"en": "Pause polling", "fr": "Mettre en pause"},
     "tray_settings": {"en": "Settings...", "fr": "Reglages..."},
     "tray_update_available": {"en": "New version available (v{version})", "fr": "Nouvelle version disponible (v{version})"},
+    "tray_update_install": {
+        "en": "Install update v{version}...",
+        "fr": "Installer la mise a jour v{version}...",
+    },
+    "tray_update_downloading": {
+        "en": "Downloading update v{version}...",
+        "fr": "Telechargement de la mise a jour v{version}...",
+    },
+    "tray_update_retry": {
+        "en": "Retry update v{version}...",
+        "fr": "Reessayer la mise a jour v{version}...",
+    },
+    "tray_update_view": {
+        "en": "View update v{version}...",
+        "fr": "Voir la mise a jour v{version}...",
+    },
     "tray_help": {"en": "Help (GitHub)", "fr": "Aide (GitHub)"},
     "tray_quit": {"en": "Quit", "fr": "Quitter"},
     "update_notif_title": {"en": "watch2notif update available", "fr": "Mise a jour watch2notif disponible"},
     "update_notif_body": {
-        "en": "Version {version} is out (currently running {current}). Click to see the release.",
-        "fr": "La version {version} est sortie (version actuelle : {current}). Clique pour voir la release.",
+        "en": "Version {version} is out (currently running {current}). Open the tray menu to install it.",
+        "fr": "La version {version} est sortie (version actuelle : {current}). Ouvre le menu du tray pour l'installer.",
+    },
+    "update_prompt_title": {
+        "en": "Install the watch2notif update?",
+        "fr": "Installer la mise a jour de watch2notif ?",
+    },
+    "update_prompt_body": {
+        "en": "Version {version} is available (installed: {current}).\n\nwatch2notif will download it, verify it, restart, and keep your settings and notification history.",
+        "fr": "La version {version} est disponible (installee : {current}).\n\nwatch2notif va la telecharger, la verifier, redemarrer et conserver tes reglages ainsi que l'historique des notifications.",
+    },
+    "update_install_button": {
+        "en": "Download and install",
+        "fr": "Telecharger et installer",
+    },
+    "update_later_button": {"en": "Later", "fr": "Plus tard"},
+    "update_open_release_button": {
+        "en": "Open release page",
+        "fr": "Ouvrir la page de la release",
+    },
+    "update_close_button": {"en": "Close", "fr": "Fermer"},
+    "update_source_title": {
+        "en": "Automatic update unavailable",
+        "fr": "Mise a jour automatique indisponible",
+    },
+    "update_source_body": {
+        "en": "Automatic installation is available only in a supported packaged app. You can open the release page and update manually.",
+        "fr": "L'installation automatique est disponible uniquement dans une application empaquetee compatible. Tu peux ouvrir la page de la release et faire la mise a jour manuellement.",
+    },
+    "update_progress_title": {
+        "en": "Updating watch2notif",
+        "fr": "Mise a jour de watch2notif",
+    },
+    "update_progress_body": {
+        "en": "Downloading and verifying version {version}...\nwatch2notif remains active during preparation.",
+        "fr": "Telechargement et verification de la version {version}...\nwatch2notif reste actif pendant la preparation.",
+    },
+    "update_error_title": {"en": "Update failed", "fr": "Echec de la mise a jour"},
+    "update_error_body": {
+        "en": "The update could not be installed. Nothing was changed and you can retry.\n\nReason: {error}",
+        "fr": "La mise a jour n'a pas pu etre installee. Rien n'a ete modifie et tu peux reessayer.\n\nRaison : {error}",
+    },
+    "update_error_download": {
+        "en": "The download failed. Check your connection and try again.",
+        "fr": "Le telechargement a echoue. Verifie ta connexion puis reessaie.",
+    },
+    "update_error_integrity": {
+        "en": "The downloaded bundle did not pass the integrity and safety checks.",
+        "fr": "Le bundle telecharge n'a pas passe les controles d'integrite et de securite.",
+    },
+    "update_error_compatibility": {
+        "en": "No valid update bundle is available for this system.",
+        "fr": "Aucun bundle de mise a jour valide n'est disponible pour ce systeme.",
+    },
+    "update_error_installer": {
+        "en": "The external updater could not be started safely.",
+        "fr": "Le programme de mise a jour externe n'a pas pu etre demarre en securite.",
+    },
+    "update_error_generic": {
+        "en": "An unexpected error occurred while preparing the update.",
+        "fr": "Une erreur inattendue s'est produite pendant la preparation de la mise a jour.",
     },
 }
 

@@ -27,7 +27,11 @@ dans `providers/`, rien d'autre a toucher.
   de reglage, un lien d'aide GitHub, et quitter ; verifie la page de
   releases GitHub toutes les 6h et ajoute une entree de menu + une
   notification desktop unique quand une nouvelle version sort
-  (`update_check.py`, pas d'auto-mise a jour, juste un signalement).
+  (`update_check.py`). Dans l'application empaquetee, le tray demande si
+  elle doit etre installee, verifie la taille et le SHA-256 de l'asset,
+  puis remplace le bundle apres sa fermeture et le redemarre en conservant
+  les reglages et l'historique (`self_update.py`). Un checkout source n'est
+  jamais modifie automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
   `github_issues.py`), chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
@@ -70,6 +74,14 @@ la page [Releases](../../releases), sans Python a installer : un seul
 executable, `watch2notif`. Le lancer demarre la surveillance ; le panneau
 de reglage s'ouvre depuis son icone de tray ("Reglages...") ou avec
 `watch2notif --settings`.
+
+Lorsqu'une mise a jour compatible est publiee, le tray pose la question
+avant tout telechargement. "Telecharger et installer" prepare et valide le
+nouveau bundle complet ; watch2notif ne se ferme que lorsque le programme de
+remplacement externe est pret, puis redemarre sur la nouvelle version. Si la
+preparation, le remplacement ou le redemarrage echoue, l'installation
+courante est conservee ou restauree. Une plateforme non prise en charge
+retombe sur la page de la release.
 
 ## Construire le bundle soi-meme
 
