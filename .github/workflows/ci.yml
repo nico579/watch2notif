@@ -28,6 +28,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Installer la bibliotheque EGL de Qt (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libegl1
+
       - name: Installer les dependances
         run: python -m pip install --quiet -r requirements.txt
 
