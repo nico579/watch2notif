@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 DEPOT = "nico579/watch2notif"
 # Prefixe par un point : state/ contient aussi un fichier par source
 # (nomme d'apres sa cle, cf notifier.state_file), et slugify() ne peut

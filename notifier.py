@@ -30,7 +30,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
@@ -451,6 +451,25 @@ def _build_tray_icon() -> QIcon:
     return QIcon(str(ICON_FILE))
 
 
+def _show_windows_window(window) -> bool | None:
+    """Synchronise l'etat Qt avec le HWND apres un clic de tray Windows.
+
+    Sur Linux/macOS, Qt gere seul la fenetre. Sous Windows, on a observe
+    QWidget.isVisible() == True alors que le HWND n'avait pas WS_VISIBLE ;
+    ShowWindow remet explicitement les deux etats en phase.
+    """
+    if platform.system() != "Windows":
+        return None
+    import ctypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    hwnd = int(window.winId())
+    user32.ShowWindow(hwnd, 5)  # SW_SHOW
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    return bool(user32.IsWindowVisible(hwnd))
+
+
 def open_url(url: str) -> None:
     if not url:
         return
@@ -504,9 +523,29 @@ class TrayApp(QObject):
         self.tray = QSystemTrayIcon(_build_tray_icon())
         self.tray.setToolTip("watch2notif")
         self.menu = QMenu()
-        # Menu reconstruit a chaque ouverture : c'est ainsi qu'on affiche
-        # l'entree "nouvelle version" seulement quand elle existe (meme
-        # esprit que le menu dynamique pystray remplace ici).
+        # Ces QAction doivent rester les memes pendant toute la vie du tray.
+        # Les detruire/recreer dans aboutToShow peut laisser Windows avec une
+        # action native perimee : le clic ferme alors le menu sans appeler le
+        # slot (constate sur l'action Reglages).
+        self.pause_action = QAction("", self.menu, checkable=True)
+        self.pause_action.toggled.connect(self._toggle_pause)
+        self.settings_action = QAction("", self.menu)
+        self.settings_action.triggered.connect(self._open_settings)
+        self.update_action = QAction("", self.menu)
+        self.update_action.triggered.connect(self._open_update_from_menu)
+        self.help_action = QAction("", self.menu)
+        self.help_action.triggered.connect(lambda _checked=False: open_url(HELP_URL))
+        self.quit_action = QAction("", self.menu)
+        self.quit_action.triggered.connect(QApplication.quit)
+        self.menu.addActions(
+            [
+                self.pause_action,
+                self.settings_action,
+                self.update_action,
+                self.help_action,
+                self.quit_action,
+            ]
+        )
         self.menu.aboutToShow.connect(self._rebuild_menu)
         self.tray.setContextMenu(self.menu)
         self._rebuild_menu()
@@ -517,16 +556,11 @@ class TrayApp(QObject):
         # changement de langue fait dans les reglages ne se voit dans le
         # tray qu'au prochain redemarrage de l'appli.
         self.lang = self._current_lang()
-        self.menu.clear()
-
-        pause_action = QAction(i18n.t("tray_pause", self.lang), self.menu, checkable=True)
-        pause_action.setChecked(self.pause_event.is_set())
-        pause_action.toggled.connect(self._toggle_pause)
-        self.menu.addAction(pause_action)
-
-        settings_action = QAction(i18n.t("tray_settings", self.lang), self.menu)
-        settings_action.triggered.connect(self._open_settings)
-        self.menu.addAction(settings_action)
+        self.pause_action.setText(i18n.t("tray_pause", self.lang))
+        signals_were_blocked = self.pause_action.blockSignals(True)
+        self.pause_action.setChecked(self.pause_event.is_set())
+        self.pause_action.blockSignals(signals_were_blocked)
+        self.settings_action.setText(i18n.t("tray_settings", self.lang))
 
         info = self.update_info
         if info:
@@ -539,18 +573,15 @@ class TrayApp(QObject):
                 key = "tray_update_retry"
             else:
                 key = "tray_update_install"
-            update_action = QAction(i18n.t(key, self.lang, version=info["version"]), self.menu)
-            update_action.setEnabled(self.update_status != UPDATE_PREPARING)
-            update_action.triggered.connect(self._open_update_from_menu)
-            self.menu.addAction(update_action)
+            self.update_action.setText(i18n.t(key, self.lang, version=info["version"]))
+            self.update_action.setEnabled(self.update_status != UPDATE_PREPARING)
+            self.update_action.setVisible(True)
+        else:
+            self.update_action.setEnabled(False)
+            self.update_action.setVisible(False)
 
-        help_action = QAction(i18n.t("tray_help", self.lang), self.menu)
-        help_action.triggered.connect(lambda: open_url(HELP_URL))
-        self.menu.addAction(help_action)
-
-        quit_action = QAction(i18n.t("tray_quit", self.lang), self.menu)
-        quit_action.triggered.connect(QApplication.quit)
-        self.menu.addAction(quit_action)
+        self.help_action.setText(i18n.t("tray_help", self.lang))
+        self.quit_action.setText(i18n.t("tray_quit", self.lang))
 
     def _toggle_pause(self, checked: bool) -> None:
         if checked:
@@ -586,8 +617,8 @@ class TrayApp(QObject):
         if version and version not in self.prompted_versions and not self.update_inflight:
             self._show_update_prompt()
 
-    @Slot()
-    def _open_update_from_menu(self) -> None:
+    @Slot(bool)
+    def _open_update_from_menu(self, _checked: bool = False) -> None:
         if self.update_info and not self.update_inflight:
             self._show_update_prompt()
 
@@ -770,14 +801,46 @@ class TrayApp(QObject):
         self.error_dialog = None
         dialog.deleteLater()
 
-    def _open_settings(self) -> None:
+    @Slot(bool)
+    def _open_settings(self, _checked: bool = False) -> None:
+        # triggered() est emis avant que le menu natif du tray ait fini de
+        # se fermer. Sous Windows, afficher une autre top-level window dans
+        # cette pile d'evenements peut la laisser creee mais cachee. Reporter
+        # l'ouverture au tour suivant de la boucle Qt evite cette course.
+        print("ouverture des reglages demandee depuis le tray.")
+        QTimer.singleShot(0, self._show_settings)
+
+    @Slot()
+    def _show_settings(self) -> None:
         import settings
 
         if self.settings_window is None:
             self.settings_window = settings.SettingsWindow(settings.load_config())
-        self.settings_window.show()
+        # show() seul ne restaure pas une fenetre minimisee. showNormal()
+        # couvre a la fois la premiere ouverture, une fermeture et un clic
+        # ulterieur depuis le tray.
+        self.settings_window.showNormal()
         self.settings_window.raise_()
         self.settings_window.activateWindow()
+        _show_windows_window(self.settings_window)
+        # Certains menus natifs terminent leur masquage apres le prochain
+        # evenement Qt. Une seconde verification courte rend l'ouverture
+        # deterministe sans delai perceptible pour l'utilisateur.
+        QTimer.singleShot(150, self._ensure_settings_visible)
+
+    @Slot()
+    def _ensure_settings_visible(self) -> None:
+        if self.settings_window is None:
+            return
+        if not self.settings_window.isVisible() or self.settings_window.isMinimized():
+            self.settings_window.showNormal()
+        self.settings_window.raise_()
+        self.settings_window.activateWindow()
+        native_visible = _show_windows_window(self.settings_window)
+        print(
+            "fenetre reglages visible: "
+            f"qt={self.settings_window.isVisible()}, native={native_visible}"
+        )
 
 
 def main() -> None:
