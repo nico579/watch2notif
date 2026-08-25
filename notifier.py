@@ -35,6 +35,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 import i18n
+import notification_history
 import notify_backend
 import self_update
 import single_instance
@@ -193,11 +194,13 @@ def notify(feed_label: str, entry) -> None:
     if len(body) > 150:
         body = body[:150] + "..."
     full_title = f"[{feed_label}] {title}"
+    link = entry.get("link", "")
     notify_backend.notify(
         title=_truncate(full_title, TITLE_MAX_LEN),
         message=f"{author} - {body}" if body else author,
-        url=entry.get("link", ""),
+        url=link,
     )
+    notification_history.append(feed_label, title, author, body, link)
 
 
 def _entry_id(entry) -> str:
@@ -506,6 +509,7 @@ class TrayApp(QObject):
         self.progress_dialog = None
         self.error_dialog = None
         self.settings_window = None
+        self.history_window = None
 
         self.update_signals.available.connect(
             self._on_update_available,
@@ -531,6 +535,8 @@ class TrayApp(QObject):
         self.pause_action.toggled.connect(self._toggle_pause)
         self.settings_action = QAction("", self.menu)
         self.settings_action.triggered.connect(self._open_settings)
+        self.history_action = QAction("", self.menu)
+        self.history_action.triggered.connect(self._open_history)
         self.update_action = QAction("", self.menu)
         self.update_action.triggered.connect(self._open_update_from_menu)
         self.help_action = QAction("", self.menu)
@@ -541,6 +547,7 @@ class TrayApp(QObject):
             [
                 self.pause_action,
                 self.settings_action,
+                self.history_action,
                 self.update_action,
                 self.help_action,
                 self.quit_action,
@@ -561,6 +568,7 @@ class TrayApp(QObject):
         self.pause_action.setChecked(self.pause_event.is_set())
         self.pause_action.blockSignals(signals_were_blocked)
         self.settings_action.setText(i18n.t("tray_settings", self.lang))
+        self.history_action.setText(i18n.t("tray_history", self.lang))
 
         info = self.update_info
         if info:
@@ -841,6 +849,26 @@ class TrayApp(QObject):
             "fenetre reglages visible: "
             f"qt={self.settings_window.isVisible()}, native={native_visible}"
         )
+
+    @Slot(bool)
+    def _open_history(self, _checked: bool = False) -> None:
+        # Meme raison que _open_settings : reporter au tour suivant de la
+        # boucle Qt pour eviter la course avec la fermeture du menu natif.
+        QTimer.singleShot(0, self._show_history)
+
+    @Slot()
+    def _show_history(self) -> None:
+        import history_window
+
+        self.lang = self._current_lang()
+        if self.history_window is None:
+            self.history_window = history_window.HistoryWindow(self.lang)
+        else:
+            self.history_window.reload(self.lang)
+        self.history_window.showNormal()
+        self.history_window.raise_()
+        self.history_window.activateWindow()
+        _show_windows_window(self.history_window)
 
 
 def main() -> None:

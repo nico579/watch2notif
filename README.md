@@ -22,7 +22,9 @@ are added as a `providers/` module, nothing else to touch.
   (clickable, opens the source's link) for each new entry. Per-source
   "already seen" state kept in `state/`. Also the single entry point of
   the built binary: a tray icon (`QSystemTrayIcon`) offers pause polling,
-  opening the settings panel, a GitHub help link, and quit; checks the
+  opening the settings panel, a notification history window (last 200
+  notifications actually sent, double-click a row to reopen its link,
+  `notification_history.py`), a GitHub help link, and quit; checks the
   GitHub releases page every 6h and adds a menu entry + one desktop
   notification when a newer version is out. In a packaged app, the tray
   asks whether to install it, verifies the published asset's size and
@@ -100,6 +102,13 @@ Reddit's classic Data API (OAuth, what `praw` uses) now requires a
 moderation use case to register a new application. These private RSS
 feeds remain an official feature, without that restriction, and are
 enough for personal read-only use.
+
+Forums built on SMF (Simple Machines Forum, a common PHP forum engine)
+expose a native per-topic RSS feed, no plugin needed: append
+`?action=.xml;type=rss2;topic=<id>.0` to the forum's `index.php` URL,
+where `<id>` is the numeric topic ID found in the topic's own URL
+(`index.php?topic=<id>.<offset>`). It only returns posts in that thread,
+so it works as a "notify me on new replies to my post" watcher.
 
 ### GitHub issues (public repos)
 

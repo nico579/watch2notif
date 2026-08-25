@@ -44,6 +44,7 @@ STRINGS = {
     "ok_msg": {"en": "Settings saved to config.json.", "fr": "Reglages sauvegardes dans config.json."},
     "tray_pause": {"en": "Pause polling", "fr": "Mettre en pause"},
     "tray_settings": {"en": "Settings...", "fr": "Reglages..."},
+    "tray_history": {"en": "Notification history...", "fr": "Historique des notifications..."},
     "tray_update_available": {"en": "New version available (v{version})", "fr": "Nouvelle version disponible (v{version})"},
     "tray_update_install": {
         "en": "Install update v{version}...",
@@ -127,6 +128,19 @@ STRINGS = {
         "en": "An unexpected error occurred while preparing the update.",
         "fr": "Une erreur inattendue s'est produite pendant la preparation de la mise a jour.",
     },
+    "history_window_title": {
+        "en": "watch2notif - notification history",
+        "fr": "watch2notif - historique des notifications",
+    },
+    "history_hint_text": {
+        "en": "Double-click a row to open its link.",
+        "fr": "Double-clique une ligne pour ouvrir son lien.",
+    },
+    "history_header_date": {"en": "Date", "fr": "Date"},
+    "history_header_source": {"en": "Source", "fr": "Source"},
+    "history_header_title": {"en": "Notification", "fr": "Notification"},
+    "history_clear_button": {"en": "Clear history", "fr": "Vider l'historique"},
+    "history_close_button": {"en": "Close", "fr": "Fermer"},
 }
 
 

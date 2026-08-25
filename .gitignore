@@ -1,6 +1,7 @@
 .env
 config.json
 state/
+notification_history.json
 __pycache__/
 *.pyc
 .venv/

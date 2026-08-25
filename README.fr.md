@@ -24,7 +24,10 @@ dans `providers/`, rien d'autre a toucher.
   entree. Etat "deja vu" garde par source dans `state/`. C'est aussi le
   point d'entree unique du binaire construit : une icone de tray
   (`QSystemTrayIcon`) propose la pause du polling, l'ouverture du panneau
-  de reglage, un lien d'aide GitHub, et quitter ; verifie la page de
+  de reglage, une fenetre d'historique des notifications (les 200
+  dernieres notifications envoyees, double-clic sur une ligne pour rouvrir
+  son lien, `notification_history.py`), un lien d'aide GitHub, et
+  quitter ; verifie la page de
   releases GitHub toutes les 6h et ajoute une entree de menu + une
   notification desktop unique quand une nouvelle version sort
   (`update_check.py`). Dans l'application empaquetee, le tray demande si
@@ -109,6 +112,14 @@ L'API Data Reddit classique (OAuth, ce qu'utilise `praw`) exige
 desormais un cas d'usage de moderation pour enregistrer une nouvelle
 application. Ces flux RSS prives restent une fonctionnalite officielle,
 sans ce blocage, suffisante pour un usage personnel de lecture.
+
+Les forums batis sur SMF (Simple Machines Forum, un moteur de forum PHP
+courant) exposent un flux RSS natif par sujet, sans plugin : ajouter
+`?action=.xml;type=rss2;topic=<id>.0` a l'URL `index.php` du forum, ou
+`<id>` est l'identifiant numerique du sujet, visible dans l'URL du sujet
+lui-meme (`index.php?topic=<id>.<offset>`). Il ne renvoie que les
+messages de ce fil, ce qui en fait un watcher "prevenir des nouvelles
+reponses a mon post" tout fait.
 
 ### Issues GitHub (repos publics)
 
