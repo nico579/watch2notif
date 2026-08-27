@@ -12,9 +12,11 @@ RSS/Atom fonctionne, plus les issues GitHub sur les repos publics (pas
 d'auth necessaire). Ajouter un nouveau type de source = ajouter un module
 dans `providers/`, rien d'autre a toucher.
 
-## Capture d'ecran
+## Captures d'ecran
 
 ![Panneau de reglage](screenshots/settings.png)
+![Menu du tray](screenshots/systray.png)
+![Historique des notifications](screenshots/history.png)
 
 ## Fonctionnement
 

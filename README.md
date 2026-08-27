@@ -11,9 +11,11 @@ reddit.com/prefs/feeds), then generalized: any RSS/Atom feed works, plus
 GitHub issues polling for public repos (no auth needed). New source types
 are added as a `providers/` module, nothing else to touch.
 
-## Screenshot
+## Screenshots
 
 ![Settings panel](screenshots/settings_en.png)
+![Tray menu](screenshots/systray_en.png)
+![Notification history](screenshots/history_en.png)
 
 ## How it works
 
