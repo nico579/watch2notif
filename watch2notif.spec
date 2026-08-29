@@ -47,6 +47,56 @@ else:
 # a verifier sur un vrai build macOS.
 PYNC_DATAS = collect_data_files("pync") if sys.platform == "darwin" else []
 
+# Ressource VERSIONINFO du binaire Windows. Un PE PyInstaller sans editeur,
+# description ni copyright renseignes ressemble statistiquement aux
+# echantillons malveillants des jeux d'entrainement de plusieurs moteurs
+# antivirus a heuristique ML (constate sur blink2video : faux positifs
+# Reddit, confirmes par un scan VirusTotal multi-versions et sur le jumeau
+# lidar2map malgre un comportement totalement different). Sans effet hors
+# Windows, PyInstaller ignore "version=" sur les autres plateformes.
+def _version_info(version: str) -> str:
+    parties = (version.split(".") + ["0", "0", "0"])[:3]
+    tuple_version = tuple(int(p) for p in parties) + (0,)
+    chemin = Path(SPECPATH) / ".version_info.txt"
+    chemin.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={tuple_version},
+    prodvers={tuple_version},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'nico579'),
+         StringStruct(u'FileDescription', u'watch2notif - notifications de surveillance en tache de fond'),
+         StringStruct(u'FileVersion', u'{version}'),
+         StringStruct(u'InternalName', u'watch2notif'),
+         StringStruct(u'LegalCopyright', u'GPLv3 - nico579'),
+         StringStruct(u'OriginalFilename', u'watch2notif.exe'),
+         StringStruct(u'ProductName', u'watch2notif'),
+         StringStruct(u'ProductVersion', u'{version}')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+""", encoding="utf-8")
+    return str(chemin)
+
+
+def _version() -> str:
+    import importlib.util
+
+    charge = importlib.util.spec_from_file_location("update_check", "update_check.py")
+    module = importlib.util.module_from_spec(charge)
+    charge.loader.exec_module(module)
+    return module.VERSION
+
 analysis = Analysis(
     ["notifier.py"],
     pathex=["."],
@@ -77,6 +127,7 @@ exe = EXE(
     # PNG source portable, converti par PyInstaller en ressource native sur
     # la plateforme de construction (meme mecanisme que blink2video/lidar2map).
     icon=str(APP_ICON),
+    version=_version_info(_version()),
 )
 
 coll = COLLECT(

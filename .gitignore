@@ -10,3 +10,6 @@ build/
 dist/
 *.log
 .watch2notif.lock
+
+# Ressource VERSIONINFO regeneree a chaque build par watch2notif.spec.
+.version_info.txt
