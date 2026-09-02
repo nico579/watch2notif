@@ -627,6 +627,15 @@ class TrayApp(QObject):
 
     @Slot(bool)
     def _open_update_from_menu(self, _checked: bool = False) -> None:
+        # Meme raison que _open_settings/_open_history : reporter au tour
+        # suivant de la boucle Qt pour eviter la course avec la fermeture
+        # du menu natif (sinon la boite de dialogue est creee mais reste
+        # cachee, et un second clic ne fait rien car update_dialog est deja
+        # pose).
+        QTimer.singleShot(0, self._show_update_prompt_from_menu)
+
+    @Slot()
+    def _show_update_prompt_from_menu(self) -> None:
         if self.update_info and not self.update_inflight:
             self._show_update_prompt()
 
@@ -673,6 +682,9 @@ class TrayApp(QObject):
         self.update_dialog = box
         self.prompted_versions.add(str(info.get("version") or ""))
         box.open()
+        box.raise_()
+        box.activateWindow()
+        _show_windows_window(box)
         return True
 
     def _finish_update_prompt(self, dialog: QMessageBox, accept_button, automatic: bool, info: dict) -> None:

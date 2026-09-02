@@ -115,6 +115,28 @@ class TargetTests(unittest.TestCase):
                     frozen=True,
                 )
 
+    def test_install_layout_tolerates_every_preserved_name(self):
+        # Chaque fichier que l'appli persiste a cote de l'executable (cf
+        # PRESERVED_NAMES) doit rester tolere par le garde-fou "contenu
+        # inconnu", sinon la mise a jour automatique se bloque en silence
+        # (constate en prod : notification_history.json manquant a la liste).
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dedicated = root / "watch2notif"
+            dedicated.mkdir()
+            (dedicated / "_internal").mkdir()
+            executable = dedicated / "watch2notif.exe"
+            executable.touch()
+            for name in self_update.PRESERVED_NAMES:
+                (dedicated / name).touch()
+            layout = self_update.install_layout(
+                executable=executable,
+                system="Windows",
+                machine="AMD64",
+                frozen=True,
+            )
+            self.assertEqual(layout.install_root, dedicated.resolve())
+
     def test_install_layout_refuses_to_replace_a_generic_parent_folder(self):
         with tempfile.TemporaryDirectory() as temporary:
             generic = Path(temporary) / "Downloads"

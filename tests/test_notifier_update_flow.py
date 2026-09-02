@@ -122,6 +122,25 @@ class TrayUpdateFlowTests(unittest.TestCase):
         self.assertTrue(self.native_window_show.called)
         window.close()
 
+    def test_update_action_click_shows_prompt_and_forces_focus(self):
+        # Reproduit le clic sur l'action tray apres que l'utilisateur a deja
+        # ecarte la boite auto-affichee (statut DECLINED) : c'est precisement
+        # le chemin qui ne faisait plus rien avant le correctif, car
+        # _show_update_prompt ne forcait jamais le focus de la fenetre.
+        self.tray._on_update_available(self.info("9.0.0"))
+        later = next(button for button in self.tray.update_dialog.buttons() if button.text() == "Later")
+        later.click()
+        self.app.processEvents()
+        self.assertIsNone(self.tray.update_dialog)
+        self.assertEqual(self.tray.update_status, notifier.UPDATE_DECLINED)
+        self.native_window_show.reset_mock()
+
+        self.tray.update_action.trigger()
+        self.app.processEvents()
+        self.assertIsNotNone(self.tray.update_dialog)
+        self.assertIn("Version 9.0.0", self.tray.update_dialog.text())
+        self.assertTrue(self.native_window_show.called)
+
 
 if __name__ == "__main__":
     unittest.main()

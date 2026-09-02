@@ -40,7 +40,7 @@ ALLOWED_DOWNLOAD_HOSTS = {
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
 }
-PRESERVED_NAMES = ("config.json", "state", "watch2notif.log")
+PRESERVED_NAMES = ("config.json", "state", "watch2notif.log", "notification_history.json")
 
 
 class UpdateError(RuntimeError):
