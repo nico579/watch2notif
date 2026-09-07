@@ -618,7 +618,9 @@ function Restore-OldVersion {
     } catch { Write-UpdateLog ("rollback failed: " + $_.Exception.Message) }
 }
 
+Write-UpdateLog ("helper started (pid " + $PID + ")")
 New-Item -ItemType File -Force -Path $ReadyFile | Out-Null
+Write-UpdateLog "ready file written, waiting for go"
 $readyDeadline = (Get-Date).AddSeconds(60)
 while (-not (Test-Path -LiteralPath $GoFile)) {
     if (Test-Path -LiteralPath (Join-Path $Staging "helper.abort")) {
@@ -633,6 +635,7 @@ if (Test-Path -LiteralPath (Join-Path $Staging "helper.abort")) {
     exit 8
 }
 New-Item -ItemType File -Force -Path ($GoFile + ".ack") | Out-Null
+Write-UpdateLog "go received, ack written, waiting for parent to exit"
 Start-Sleep -Milliseconds 500
 try {
     $parentDeadline = (Get-Date).AddMinutes(5)
@@ -645,6 +648,7 @@ try {
         Start-Watch2notif $Current | Out-Null
         exit 11
     }
+    Write-UpdateLog "parent exited, starting swap"
     Move-Item -LiteralPath $Current -Destination $Backup
     try {
         Move-Item -LiteralPath $Payload -Destination $Current
@@ -665,6 +669,7 @@ try {
         exit 3
     }
 
+    Write-UpdateLog "update succeeded, new version running"
     Remove-Item -LiteralPath $Backup -Recurse -Force
     Remove-Item -LiteralPath $Staging -Recurse -Force
     exit 0
@@ -761,7 +766,9 @@ restore_old() {
     fi
 }
 
+write_log "helper started (pid $$)"
 : > "$ready_file" || exit 10
+write_log "ready file written, waiting for go"
 waited=0
 while [ ! -e "$go_file" ]; do
     if [ -e "$staging/helper.abort" ]; then
@@ -791,6 +798,7 @@ if [ "$system_name" = "Darwin" ] && [ -f "$mac_plist" ]; then
     fi
 fi
 : > "$go_file.ack" || exit 10
+write_log "go received, ack written, waiting for parent to exit"
 sleep 1
 
 waited=0
@@ -810,6 +818,7 @@ if [ -e "$backup" ] || [ -L "$backup" ] || [ -e "$failed" ] || [ -L "$failed" ];
     exit 12
 fi
 
+write_log "parent exited, starting swap"
 if ! mv "$current" "$backup"; then
     write_log "could not move current installation"
     start_version "$current" || true
@@ -831,6 +840,7 @@ if ! start_version "$current"; then
     exit 15
 fi
 
+write_log "update succeeded, new version running"
 rm -rf "$backup"
 rm -rf "$staging"
 exit 0
@@ -1008,13 +1018,20 @@ def launch_prepared_update(prepared: PreparedUpdate) -> None:
         # jour aurait reussi, mais uniquement mesure avec une marge de 15s -
         # echouait systematiquement a 8s alors que le helper n'avait rien de
         # casse.
-        deadline = time.monotonic() + 25
+        wait_start = time.monotonic()
+        deadline = wait_start + 25
         while time.monotonic() < deadline:
             if ready_file.exists():
+                print(f"[maj] helper pret apres {time.monotonic() - wait_start:.1f}s")
                 return
             if process is not None and process.poll() is not None:
+                print(
+                    f"[maj] le processus helper s'est termine (code {process.returncode}) "
+                    f"apres {time.monotonic() - wait_start:.1f}s sans ecrire helper.ready"
+                )
                 break
             time.sleep(0.1)
+        print(f"[maj] pas de confirmation du helper apres {time.monotonic() - wait_start:.1f}s")
         raise UpdateError("helper_failed", "le helper n'a pas confirme son demarrage")
     except UpdateError:
         raise
@@ -1033,12 +1050,15 @@ def commit_prepared_update(prepared: PreparedUpdate) -> None:
         go_file.touch(exist_ok=False)
     except OSError as exc:
         raise UpdateError("helper_failed", str(exc)) from exc
-    deadline = time.monotonic() + 8
+    wait_start = time.monotonic()
+    deadline = wait_start + 8
     acknowledgement = Path(str(go_file) + ".ack")
     while time.monotonic() < deadline:
         if acknowledgement.is_file():
+            print(f"[maj] transaction confirmee par le helper apres {time.monotonic() - wait_start:.1f}s")
             return
         time.sleep(0.05)
+    print(f"[maj] pas d'accuse de reception du helper apres {time.monotonic() - wait_start:.1f}s")
     abort_prepared_update(prepared)
     raise UpdateError("helper_failed", "le helper n'a pas confirme la transaction")
 
