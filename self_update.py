@@ -1000,7 +1000,15 @@ def launch_prepared_update(prepared: PreparedUpdate) -> None:
                     close_fds=True,
                 )
 
-        deadline = time.monotonic() + 8
+        # 25s, pas 8 : sur Windows, le premier lancement d'un script PowerShell
+        # inedit (nouveau fichier temporaire a chaque mise a jour) declenche un
+        # scan AMSI/Defender qui peut a lui seul depasser 8s avant que le
+        # helper n'atteigne sa premiere ligne. Constate en reel (2026-09-07,
+        # session Claude) : le helper ecrit bien helper.ready et la mise a
+        # jour aurait reussi, mais uniquement mesure avec une marge de 15s -
+        # echouait systematiquement a 8s alors que le helper n'avait rien de
+        # casse.
+        deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             if ready_file.exists():
                 return
