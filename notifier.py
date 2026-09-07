@@ -62,6 +62,28 @@ MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
 RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
 
+class _TimestampedLog:
+    """Prefixe chaque ligne ecrite d'un horodatage ISO, sans toucher aux
+    print() eux-memes : sans ca, une ligne du log ne peut se situer dans
+    le temps qu'en la recoupant avec un contexte externe (constate en
+    reel en debuggant le mecanisme de mise a jour, ou l'ordre des lignes
+    ne suffisait pas)."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self._at_line_start = True
+
+    def write(self, data: str) -> None:
+        for chunk in data.splitlines(keepends=True):
+            if self._at_line_start and chunk.strip():
+                self._stream.write(datetime.now().isoformat(timespec="seconds") + " ")
+            self._stream.write(chunk)
+            self._at_line_start = chunk.endswith("\n")
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+
 # En executable "windowed" (console=False, cf watch2notif.spec), Windows ne
 # donne pas de console au process : sys.stdout/stderr valent None, et le
 # moindre print() plante. On redirige alors vers un fichier de log a cote
@@ -69,7 +91,7 @@ ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
 SELF_TEST_REQUESTED = "--self-test-version" in sys.argv[1:]
 if sys.stdout is None and not SELF_TEST_REQUESTED:
     log_file = open(BASE_DIR / "watch2notif.log", "a", encoding="utf-8", buffering=1)
-    sys.stdout = sys.stderr = log_file
+    sys.stdout = sys.stderr = _TimestampedLog(log_file)
 elif sys.stdout is not None:
     sys.stdout.reconfigure(line_buffering=True)
 

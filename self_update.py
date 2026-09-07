@@ -962,7 +962,15 @@ def launch_prepared_update(prepared: PreparedUpdate) -> None:
                 "-LogFile",
                 str(log_file),
             ]
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+            # CREATE_NO_WINDOW seul : une console est bien creee, juste
+            # invisible, contrairement a DETACHED_PROCESS (aucune console du
+            # tout) qui rendait ce lancement de PowerShell erratique - parfois
+            # 15s a demarrer, parfois un retour immediat (code 0) sans que le
+            # script n'ait rien execute. Constate en reel (2026-09-07),
+            # confirme par comparaison avec runtime.py de blink2video (meme
+            # besoin, memes drapeaux disponibles) qui n'utilise que
+            # CREATE_NO_WINDOW et n'a jamais eu ce symptome.
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             process = subprocess.Popen(
                 command,
                 cwd=tempfile.gettempdir(),
