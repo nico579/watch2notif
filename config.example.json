@@ -12,6 +12,7 @@
     {"key": "upvoted", "label": "Upvoted links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
     {"key": "downvoted", "label": "Downvoted links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
     {"key": "hidden", "label": "Hidden links", "url": "", "enabled": false, "kind": "rss", "interval_seconds": null},
-    {"key": "github_issues_example", "label": "GitHub issues example", "url": "owner/repo", "enabled": false, "kind": "github_issues", "interval_seconds": 300}
+    {"key": "github_issues_example", "label": "GitHub issues example", "url": "owner/repo", "enabled": false, "kind": "github_issues", "interval_seconds": 300},
+    {"key": "github_discussion_example", "label": "GitHub discussion example", "url": "owner/repo#123", "enabled": false, "kind": "github_discussion", "interval_seconds": 300}
   ]
 }

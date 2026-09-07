@@ -33,9 +33,10 @@ are added as a `providers/` module, nothing else to touch.
   SHA-256, then replaces the bundle after shutdown and restarts it while
   preserving settings and notification history (`update_check.py`,
   `self_update.py`). A source checkout is never modified automatically.
-- `providers/`: one module per source type (`rss.py`, `github_issues.py`),
-  each exposing `fetch_entries(source) -> list[Entry]`. Adding a new
-  source type means adding a module here, nothing else changes.
+- `providers/`: one module per source type (`rss.py`, `github_issues.py`,
+  `github_discussion.py`), each exposing `fetch_entries(source) ->
+  list[Entry]`. Adding a new source type means adding a module here,
+  nothing else changes.
 - `settings.py`: settings panel (Qt/PySide6) to add/remove sources, pick
   their type, set per-source polling interval, and toggle autostart with
   the system. Bilingual FR/EN, toggle top-right. Native, user-resizable
@@ -120,6 +121,16 @@ per IP without a token, 5000/hour with one (set the `GITHUB_TOKEN`
 environment variable, e.g. from `gh auth token`). Prefer a longer
 per-source interval for this type (a few minutes) to stay under the
 unauthenticated limit.
+
+### GitHub discussion replies
+
+Enter `owner/repo#number` as the source (the number after `/discussions/`
+in the URL). Watches one Discussion thread and reports new top-level
+comments and replies. Unlike GitHub issues, Discussions have no REST
+endpoint at all: this goes through GitHub's GraphQL API instead, which
+refuses anonymous requests even on a public repo. The `GITHUB_TOKEN`
+environment variable is therefore required, not just a rate-limit
+booster (same variable as GitHub issues, e.g. from `gh auth token`).
 
 ## Adding a source type
 

@@ -38,7 +38,8 @@ dans `providers/`, rien d'autre a toucher.
   les reglages et l'historique (`self_update.py`). Un checkout source n'est
   jamais modifie automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
-  `github_issues.py`), chacun expose `fetch_entries(source) -> list[Entry]`.
+  `github_issues.py`, `github_discussion.py`), chacun expose
+  `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
   change.
 - `settings.py` : panneau de reglage (Qt/PySide6) pour ajouter/retirer
@@ -131,6 +132,17 @@ requetes/heure par IP sans token, 5000/heure avec un token (variable
 d'environnement `GITHUB_TOKEN`, ex: `gh auth token`). Prefere un
 intervalle plus long (quelques minutes) pour ce type de source, pour
 rester sous la limite sans token.
+
+### Reponses a une discussion GitHub
+
+Entre `owner/repo#numero` comme source (le numero apres `/discussions/`
+dans l'URL). Surveille un fil de discussion precis et signale les
+nouveaux commentaires et reponses. Contrairement aux issues, les
+Discussions n'ont aucune API REST : ceci passe par l'API GraphQL de
+GitHub, qui refuse les requetes anonymes meme sur un repo public. La
+variable d'environnement `GITHUB_TOKEN` est donc obligatoire, pas juste
+un bonus de limite de debit (meme variable que pour les issues GitHub,
+ex: `gh auth token`).
 
 ## Ajouter un type de source
 
