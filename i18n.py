@@ -17,7 +17,10 @@ STRINGS = {
     "add_feed_button": {"en": "+ Add a source", "fr": "+ Ajouter une source"},
     "note_text": {
         "en": "Any RSS/Atom feed works, plus GitHub issues (owner/repo, public "
-              "repos only, no auth needed). Reddit presets included "
+              "repos, no auth needed), GitHub discussion replies "
+              "(owner/repo#number, needs GITHUB_TOKEN), and YouTube video "
+              "comments (needs YOUTUBE_API_KEY) - see README for details. "
+              "Reddit presets included "
               "(reddit.com/prefs/feeds), but you can add/remove freely. Some "
               "Reddit URLs carry a private token, avoid sharing screenshots "
               "of this panel. The interval field is prefilled based on the "
@@ -25,8 +28,11 @@ STRINGS = {
               "rate-limited to 60 requests/hour without a GITHUB_TOKEN); "
               "edit it freely per source.",
         "fr": "N'importe quel flux RSS/Atom fonctionne, plus les issues GitHub "
-              "(owner/repo, repos publics uniquement, pas d'auth necessaire). "
-              "Presets Reddit fournis (reddit.com/prefs/feeds), mais tu peux "
+              "(owner/repo, repos publics, pas d'auth necessaire), les "
+              "reponses a une discussion GitHub (owner/repo#numero, "
+              "necessite GITHUB_TOKEN), et les commentaires de video "
+              "YouTube (necessite YOUTUBE_API_KEY) - voir le README pour le "
+              "detail. Presets Reddit fournis (reddit.com/prefs/feeds), mais tu peux "
               "ajouter/retirer librement. Certaines URLs Reddit contiennent "
               "un token prive, evite de partager des captures de ce panneau. "
               "Le champ intervalle est "

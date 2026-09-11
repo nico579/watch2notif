@@ -8,8 +8,9 @@ up. Cross-platform (Windows/Linux/Mac).
 
 Started as a Reddit inbox watcher (via Reddit's private RSS feeds,
 reddit.com/prefs/feeds), then generalized: any RSS/Atom feed works, plus
-GitHub issues polling for public repos (no auth needed). New source types
-are added as a `providers/` module, nothing else to touch.
+GitHub issues polling for public repos (no auth needed), GitHub
+discussion replies, and YouTube video comments. New source types are
+added as a `providers/` module, nothing else to touch.
 
 ## Screenshots
 
@@ -34,9 +35,9 @@ are added as a `providers/` module, nothing else to touch.
   preserving settings and notification history (`update_check.py`,
   `self_update.py`). A source checkout is never modified automatically.
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`,
-  `github_discussion.py`), each exposing `fetch_entries(source) ->
-  list[Entry]`. Adding a new source type means adding a module here,
-  nothing else changes.
+  `github_discussion.py`, `youtube_comments.py`), each exposing
+  `fetch_entries(source) -> list[Entry]`. Adding a new source type means
+  adding a module here, nothing else changes.
 - `settings.py`: settings panel (Qt/PySide6) to add/remove sources, pick
   their type, set per-source polling interval, and toggle autostart with
   the system. Bilingual FR/EN, toggle top-right. Native, user-resizable
@@ -131,6 +132,18 @@ endpoint at all: this goes through GitHub's GraphQL API instead, which
 refuses anonymous requests even on a public repo. The `GITHUB_TOKEN`
 environment variable is therefore required, not just a rate-limit
 booster (same variable as GitHub issues, e.g. from `gh auth token`).
+
+### YouTube comments
+
+Enter a video URL (any common form) or a bare video ID as the source.
+Watches one video and reports new top-level comments and their visible
+replies. YouTube exposes an Atom feed for a channel's new uploads, but
+none for comments on a video, so this goes through the YouTube Data API
+v3 instead. Requires a free API key: Google Cloud Console -> APIs &
+Services -> enable "YouTube Data API v3" -> Credentials -> Create API
+key, then set the `YOUTUBE_API_KEY` environment variable. Quota cost is
+2 units per poll (10000/day free allowance), so the default interval is
+a courtesy, not a quota necessity.
 
 ## Adding a source type
 

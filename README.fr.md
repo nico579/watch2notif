@@ -9,8 +9,9 @@ chose de nouveau apparait. Cross-platform (Windows/Linux/Mac).
 Parti d'un besoin de surveiller son inbox Reddit (via les flux RSS prives
 de reddit.com/prefs/feeds), puis generalise : n'importe quel flux
 RSS/Atom fonctionne, plus les issues GitHub sur les repos publics (pas
-d'auth necessaire). Ajouter un nouveau type de source = ajouter un module
-dans `providers/`, rien d'autre a toucher.
+d'auth necessaire), les reponses a une discussion GitHub, et les
+commentaires de video YouTube. Ajouter un nouveau type de source =
+ajouter un module dans `providers/`, rien d'autre a toucher.
 
 ## Captures d'ecran
 
@@ -38,8 +39,8 @@ dans `providers/`, rien d'autre a toucher.
   les reglages et l'historique (`self_update.py`). Un checkout source n'est
   jamais modifie automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
-  `github_issues.py`, `github_discussion.py`), chacun expose
-  `fetch_entries(source) -> list[Entry]`.
+  `github_issues.py`, `github_discussion.py`, `youtube_comments.py`),
+  chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
   change.
 - `settings.py` : panneau de reglage (Qt/PySide6) pour ajouter/retirer
@@ -143,6 +144,19 @@ GitHub, qui refuse les requetes anonymes meme sur un repo public. La
 variable d'environnement `GITHUB_TOKEN` est donc obligatoire, pas juste
 un bonus de limite de debit (meme variable que pour les issues GitHub,
 ex: `gh auth token`).
+
+### Commentaires YouTube
+
+Entre une URL de video (n'importe quel format courant) ou un ID brut
+comme source. Surveille une video et signale les nouveaux commentaires
+de premier niveau et leurs reponses visibles. YouTube expose un flux
+Atom pour les nouvelles videos d'une chaine, mais aucun pour les
+commentaires d'une video : ceci passe par l'API YouTube Data v3. Necessite
+une cle API gratuite : Google Cloud Console -> APIs & Services -> activer
+"YouTube Data API v3" -> Credentials -> Create API key, puis definir la
+variable d'environnement `YOUTUBE_API_KEY`. Cout de quota : 2 unites par
+sondage (quota gratuit de 10000/jour), donc l'intervalle par defaut est
+une question de courtoisie, pas de necessite de quota.
 
 ## Ajouter un type de source
 
