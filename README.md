@@ -2,9 +2,9 @@
 
 # watch2notif
 
-Small desktop tool that watches sources (RSS/Atom feeds, GitHub issues...)
-and fires a native, clickable notification whenever something new shows
-up. Cross-platform (Windows/Linux/Mac).
+Small desktop tool that watches sources (RSS/Atom feeds, GitHub issues,
+YouTube comments...) and fires a native, clickable notification
+whenever something new shows up. Cross-platform (Windows/Linux/Mac).
 
 Started as a Reddit inbox watcher (via Reddit's private RSS feeds,
 reddit.com/prefs/feeds), then generalized: any RSS/Atom feed works, plus

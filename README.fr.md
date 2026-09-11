@@ -3,8 +3,9 @@
 # watch2notif
 
 Petit outil desktop qui surveille des sources (flux RSS/Atom, issues
-GitHub...) et affiche une notification native et cliquable quand quelque
-chose de nouveau apparait. Cross-platform (Windows/Linux/Mac).
+GitHub, commentaires YouTube...) et affiche une notification native et
+cliquable quand quelque chose de nouveau apparait. Cross-platform
+(Windows/Linux/Mac).
 
 Parti d'un besoin de surveiller son inbox Reddit (via les flux RSS prives
 de reddit.com/prefs/feeds), puis generalise : n'importe quel flux
