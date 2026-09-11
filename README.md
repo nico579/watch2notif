@@ -119,9 +119,14 @@ so it works as a "notify me on new replies to my post" watcher.
 Enter `owner/repo` as the source. Uses GitHub's public REST API, no
 authentication needed for public repos. Rate-limited to 60 requests/hour
 per IP without a token, 5000/hour with one (set the `GITHUB_TOKEN`
-environment variable, e.g. from `gh auth token`). Prefer a longer
-per-source interval for this type (a few minutes) to stay under the
-unauthenticated limit.
+environment variable). If the `gh` CLI is already installed and logged
+in, `gh auth token` prints one; otherwise create one manually on
+GitHub.com: avatar menu -> Settings -> Developer settings -> Personal
+access tokens -> Tokens (classic) -> Generate new token (classic). No
+scope needs to be checked for read-only access to public repos, the
+token only needs to exist to authenticate the request and lift the
+per-IP limit. Prefer a longer per-source interval for this type (a few
+minutes) to stay under the unauthenticated limit.
 
 ### GitHub discussion replies
 
@@ -131,7 +136,8 @@ comments and replies. Unlike GitHub issues, Discussions have no REST
 endpoint at all: this goes through GitHub's GraphQL API instead, which
 refuses anonymous requests even on a public repo. The `GITHUB_TOKEN`
 environment variable is therefore required, not just a rate-limit
-booster (same variable as GitHub issues, e.g. from `gh auth token`).
+booster (same variable as GitHub issues, see above for how to obtain
+one).
 
 ### YouTube comments
 

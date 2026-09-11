@@ -130,9 +130,14 @@ reponses a mon post" tout fait.
 Entre `owner/repo` comme source. Utilise l'API REST publique de GitHub,
 pas d'authentification necessaire pour les repos publics. Limite a 60
 requetes/heure par IP sans token, 5000/heure avec un token (variable
-d'environnement `GITHUB_TOKEN`, ex: `gh auth token`). Prefere un
-intervalle plus long (quelques minutes) pour ce type de source, pour
-rester sous la limite sans token.
+d'environnement `GITHUB_TOKEN`). Si le CLI `gh` est deja installe et
+connecte, `gh auth token` en affiche un ; sinon, en creer un a la main
+sur GitHub.com : menu avatar -> Settings -> Developer settings ->
+Personal access tokens -> Tokens (classic) -> Generate new token
+(classic). Aucune case a cocher pour un acces lecture seule aux repos
+publics, le token doit juste exister pour authentifier la requete et
+lever la limite par IP. Prefere un intervalle plus long (quelques
+minutes) pour ce type de source, pour rester sous la limite sans token.
 
 ### Reponses a une discussion GitHub
 
@@ -143,7 +148,7 @@ Discussions n'ont aucune API REST : ceci passe par l'API GraphQL de
 GitHub, qui refuse les requetes anonymes meme sur un repo public. La
 variable d'environnement `GITHUB_TOKEN` est donc obligatoire, pas juste
 un bonus de limite de debit (meme variable que pour les issues GitHub,
-ex: `gh auth token`).
+voir plus haut pour l'obtenir).
 
 ### Commentaires YouTube
 
