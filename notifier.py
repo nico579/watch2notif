@@ -34,6 +34,7 @@ from PySide6.QtCore import QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
+import data_paths
 import i18n
 import notification_history
 import notify_backend
@@ -42,13 +43,8 @@ import single_instance
 import update_check
 from providers import DEFAULT_KIND, PROVIDERS
 
-# __file__ pointe vers le dossier d'extraction temporaire de PyInstaller
-# (sys._MEIPASS) une fois fige, pas vers le dossier de l'executable : c'est
-# la aussi qu'il faut config.json/state/, a cote du .exe reel.
-BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-
-CONFIG_FILE = BASE_DIR / "config.json"
-STATE_DIR = BASE_DIR / "state"
+CONFIG_FILE = data_paths.DATA_DIR / "config.json"
+STATE_DIR = data_paths.DATA_DIR / "state"
 STATE_SCHEMA_VERSION = 2
 # Un flux peut publier une entree avec quelques minutes de retard ou plusieurs
 # entrees a la meme seconde. On ne classe silencieusement comme "remontee
@@ -56,9 +52,9 @@ STATE_SCHEMA_VERSION = 2
 BACKFILL_GRACE_SECONDS = 5 * 60
 MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
 
-# A l'inverse de BASE_DIR : les assets embarques (watch2notif.spec, datas=)
-# vivent dans sys._MEIPASS une fois fige (le dossier _internal/ en mode
-# dossier), pas a cote de l'executable.
+# A l'inverse de data_paths.DATA_DIR : les assets embarques (watch2notif.spec,
+# datas=) vivent dans sys._MEIPASS une fois fige (le dossier _internal/ en
+# mode dossier), pas a cote de l'executable ni dans le dossier de donnees.
 RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
 
@@ -90,7 +86,7 @@ class _TimestampedLog:
 # de l'executable, seul moyen de garder une trace d'un poller silencieux.
 SELF_TEST_REQUESTED = "--self-test-version" in sys.argv[1:]
 if sys.stdout is None and not SELF_TEST_REQUESTED:
-    log_file = open(BASE_DIR / "watch2notif.log", "a", encoding="utf-8", buffering=1)
+    log_file = open(data_paths.DATA_DIR / "watch2notif.log", "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = _TimestampedLog(log_file)
 elif sys.stdout is not None:
     sys.stdout.reconfigure(line_buffering=True)
@@ -453,7 +449,7 @@ def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> No
                     print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
                 next_due[key] = now + interval
 
-            info = update_check.disponible(BASE_DIR)
+            info = update_check.disponible(data_paths.DATA_DIR)
             available_version = info.get("version") if info else None
             if available_version != emitted_version:
                 emitted_version = available_version
@@ -759,7 +755,7 @@ class TrayApp(QObject):
             # Un clic Installer force une relecture GitHub : le cache qui a
             # servi au signalement peut etre ancien ou ne pas encore contenir
             # digest/size (migration depuis les versions precedentes).
-            latest = update_check.disponible(BASE_DIR, force=True)
+            latest = update_check.disponible(data_paths.DATA_DIR, force=True)
             if not latest:
                 raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
             if latest.get("version") != expected_version:
@@ -906,7 +902,8 @@ class TrayApp(QObject):
 
 
 def main() -> None:
-    if not single_instance.acquire(BASE_DIR):
+    data_paths.migrer_donnees_existantes()
+    if not single_instance.acquire(data_paths.DATA_DIR):
         # Autostart + lancement manuel, ou double-clic accidentel : pas
         # d'erreur bruyante pour un poller de fond, on cede juste la place
         # a l'instance deja active.

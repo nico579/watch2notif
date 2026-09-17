@@ -25,7 +25,12 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
 - `notifier.py` : boucle de fond, poll les sources activees dans
   `config.json`, chacune avec son propre intervalle, notification
   desktop cliquable (ouvre le lien de la source) sur chaque nouvelle
-  entree. Etat "deja vu" garde par source dans `state/`. C'est aussi le
+  entree. Etat "deja vu" garde par source dans `state/`. `config.json`,
+  `state/` et l'historique des notifications vivent dans le dossier de
+  donnees standard de l'OS (`%APPDATA%` sous Windows, dossier XDG sous
+  Linux, Application Support sous Mac, via `platformdirs`, voir
+  `data_paths.py`), jamais a cote de l'executable : une reinstallation ou
+  une reconstruction ne doit jamais les effacer. C'est aussi le
   point d'entree unique du binaire construit : une icone de tray
   (`QSystemTrayIcon`) propose la pause du polling, l'ouverture du panneau
   de reglage, une fenetre d'historique des notifications (les 200

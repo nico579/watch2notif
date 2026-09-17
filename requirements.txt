@@ -7,6 +7,7 @@
 # machine (Windows), les figer a l'aveugle risquerait de coincer sur une
 # version cassee plutot que d'aider.
 feedparser==6.0.14
+platformdirs==4.11.9
 win11toast==0.36.3; sys_platform == "win32"
 pync; sys_platform == "darwin"
 plyer; sys_platform == "linux"

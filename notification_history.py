@@ -4,15 +4,11 @@ and a watermark to dedupe future polls, never the content): this is a
 bounded, human-readable log meant to be read back and displayed."""
 import json
 import os
-import sys
 import time
-from pathlib import Path
 
-# Meme resolution que BASE_DIR dans notifier.py/settings.py : __file__ pointe
-# vers le dossier d'extraction temporaire de PyInstaller une fois fige, pas
-# vers le dossier de l'executable.
-BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-HISTORY_FILE = BASE_DIR / "notification_history.json"
+import data_paths
+
+HISTORY_FILE = data_paths.DATA_DIR / "notification_history.json"
 MAX_ENTRIES = 200
 
 

@@ -36,17 +36,15 @@ from PySide6.QtWidgets import (
 )
 
 import autostart_manager
+import data_paths
 import i18n
 from providers import DEFAULT_KIND, PROVIDERS
 
-# __file__ pointe vers le dossier d'extraction temporaire de PyInstaller
-# une fois fige, pas vers le dossier de l'executable : config.json doit
-# vivre a cote du .exe reel.
-BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-CONFIG_FILE = BASE_DIR / "config.json"
+CONFIG_FILE = data_paths.DATA_DIR / "config.json"
 
-# A l'inverse de BASE_DIR : les assets embarques (watch2notif.spec, datas=)
-# vivent dans sys._MEIPASS une fois fige, pas a cote de l'executable.
+# A l'inverse de data_paths.DATA_DIR : les assets embarques (watch2notif.spec,
+# datas=) vivent dans sys._MEIPASS une fois fige, pas a cote de l'executable
+# ni dans le dossier de donnees.
 RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
 
@@ -296,6 +294,7 @@ class SettingsWindow(QWidget):
 
 
 def main() -> None:
+    data_paths.migrer_donnees_existantes()
     config = load_config()
     app = QApplication.instance() or QApplication(sys.argv)
     app.setWindowIcon(QIcon(str(ICON_FILE)))

@@ -23,7 +23,12 @@ added as a `providers/` module, nothing else to touch.
 - `notifier.py`: background loop, polls the sources enabled in
   `config.json`, each on its own interval, fires a desktop notification
   (clickable, opens the source's link) for each new entry. Per-source
-  "already seen" state kept in `state/`. Also the single entry point of
+  "already seen" state kept in `state/`. `config.json`, `state/` and the
+  notification history live in the OS's standard per-user data directory
+  (`%APPDATA%` on Windows, XDG data dir on Linux, Application Support on
+  Mac, via `platformdirs`, see `data_paths.py`), never next to the
+  executable: a reinstall or rebuild must never wipe them. Also the single
+  entry point of
   the built binary: a tray icon (`QSystemTrayIcon`) offers pause polling,
   opening the settings panel, a notification history window (last 200
   notifications actually sent, double-click a row to reopen its link,
