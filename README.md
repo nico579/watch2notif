@@ -139,6 +139,20 @@ environment variable is therefore required, not just a rate-limit
 booster (same variable as GitHub issues, see above for how to obtain
 one).
 
+### GitHub Sponsors
+
+Enter your GitHub login (or an organization's) as the source. GitHub sends
+no notification of its own when someone new sponsors you ([confirmed
+here](https://github.com/orgs/community/discussions/41675)): checking the
+Sponsors dashboard by hand is otherwise the only way to know. Goes through
+the GraphQL API like GitHub discussion replies, so `GITHUB_TOKEN` is
+required there too, but with the extra `read:user` scope on top of the
+usual ones: that scope is what exposes a stable ID for a sponsor who chose
+to stay anonymous (their profile is hidden, but the sponsorship itself
+still gets a distinct ID, so a second anonymous sponsor is never mistaken
+for the first). A rare event compared to a discussion reply, so the
+default interval is longer.
+
 ### YouTube comments
 
 Enter a video URL (any common form) or a bare video ID as the source.

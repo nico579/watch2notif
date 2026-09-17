@@ -151,6 +151,21 @@ variable d'environnement `GITHUB_TOKEN` est donc obligatoire, pas juste
 un bonus de limite de debit (meme variable que pour les issues GitHub,
 voir plus haut pour l'obtenir).
 
+### GitHub Sponsors
+
+Entre ton identifiant GitHub (ou celui d'une organisation) comme source.
+GitHub n'envoie aucune notification quand quelqu'un devient nouveau sponsor
+([confirme ici](https://github.com/orgs/community/discussions/41675)) :
+consulter le tableau de bord Sponsors a la main reste sinon le seul moyen
+de le savoir. Passe par l'API GraphQL comme les reponses de discussion
+GitHub, donc `GITHUB_TOKEN` est requis la aussi, mais avec en plus le scope
+`read:user` par-dessus les scopes habituels : ce scope est ce qui expose un
+identifiant stable pour un sponsor reste anonyme (son profil est cache,
+mais le parrainage lui-meme garde un identifiant distinct, donc un
+deuxieme sponsor anonyme n'est jamais confondu avec le premier). Un
+evenement rare compare a une reponse de discussion, d'ou un intervalle par
+defaut plus long.
+
 ### Commentaires YouTube
 
 Entre une URL de video (n'importe quel format courant) ou un ID brut
