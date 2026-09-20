@@ -1,13 +1,16 @@
-"""Textes de l'interface (FR/EN) pour settings.py et l'icone de tray de
-notifier.py. Meme esprit que le
-bilinguisme des autres projets (blink2video, lidar2map) : anglais par
-defaut, francais si la locale systeme le suggere, bascule manuelle
-persistee dans config.json.
+"""Textes de l'interface (FR/EN) pour gui/ (page web de reglages/historique,
+servie par notifier.py via _serve_web.py) et l'icone de tray. Meme esprit
+que le bilinguisme des autres projets (blink2video, lidar2map) : anglais
+par defaut, francais si la locale systeme le suggere, bascule manuelle
+persistee dans config.json. Consomme aussi bien cote Python (tray) que
+cote JS (gui/app.js, via GET /api/strings qui renvoie STRINGS tel quel).
 """
 import locale
 
 STRINGS = {
     "window_title": {"en": "watch2notif - settings", "fr": "watch2notif - reglages"},
+    "tab_settings": {"en": "Settings", "fr": "Reglages"},
+    "tab_history": {"en": "History", "fr": "Historique"},
     "autostart_label": {"en": "Start automatically with the system", "fr": "Demarrer automatiquement avec le systeme"},
     "header_active": {"en": "Active", "fr": "Actif"},
     "header_kind": {"en": "Type", "fr": "Type"},

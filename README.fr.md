@@ -31,16 +31,14 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   Linux, Application Support sous Mac, via `platformdirs`, voir
   `data_paths.py`), jamais a cote de l'executable : une reinstallation ou
   une reconstruction ne doit jamais les effacer. C'est aussi le
-  point d'entree unique du binaire construit : une icone de tray
-  (`QSystemTrayIcon`) propose la pause du polling, l'ouverture du panneau
-  de reglage, une fenetre d'historique des notifications (les 200
-  dernieres notifications envoyees, double-clic sur une ligne pour rouvrir
-  son lien, `notification_history.py`), un lien d'aide GitHub, et
-  quitter ; verifie la page de
+  point d'entree unique du binaire construit : une icone de zone de
+  notification (`pystray`) propose la pause du polling, l'ouverture de la
+  page de reglages/historique (dans le navigateur par defaut), un lien
+  d'aide GitHub, et quitter ; verifie la page de
   releases GitHub toutes les 6h et ajoute une entree de menu + une
   notification desktop unique quand une nouvelle version sort
-  (`update_check.py`). Dans l'application empaquetee, le tray demande si
-  elle doit etre installee, verifie la taille et le SHA-256 de l'asset,
+  (`update_check.py`). Dans l'application empaquetee, la page de reglages
+  propose de l'installer, verifie la taille et le SHA-256 de l'asset,
   puis remplace le bundle apres sa fermeture et le redemarre en conservant
   les reglages et l'historique (`self_update.py`). Un checkout source n'est
   jamais modifie automatiquement.
@@ -49,16 +47,15 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
   change.
-- `settings.py` : panneau de reglage (Qt/PySide6) pour ajouter/retirer
+- `gui/` + `_serve_web.py` : page de reglages/historique (ajouter/retirer
   des sources, choisir leur type, regler leur intervalle de polling
-  individuel, et activer l'autostart. Bilingue FR/EN, bascule en haut a
-  droite. Colonnes du tableau redimensionnables nativement a la souris.
-  Lancable seul (`python settings.py`), via `notifier.py --settings`
-  (son propre sous-processus, pour un raccourci ou un usage CLI), ou
-  depuis l'entree "Reglages..." du tray, qui l'ouvre directement dans le
-  processus du tray (une seule appli Qt, une seule boucle d'evenements
-  pour tout le binaire, voir le commentaire en tete de
-  `watch2notif.spec`).
+  individuel, activer l'autostart, parcourir les 200 dernieres
+  notifications envoyees, double-clic sur une ligne pour rouvrir son
+  lien), servie en HTTP local (stdlib `http.server`, aucun framework) et
+  ouverte dans le navigateur par defaut du systeme - meme architecture
+  que les projets jumeaux lidar2map et blink2video. Bilingue FR/EN,
+  bascule en haut a droite. Accessible depuis les entrees
+  "Reglages..."/"Historique..." du tray, ou avec `notifier.py --settings`.
 - `notify_backend.py` : backend de notification par OS - `win11toast`
   (Windows, toast WinRT moderne, bon nom d'appli, cliquable), `pync`
   (Mac, via terminal-notifier, cliquable), `plyer` (Linux, pas encore
@@ -75,26 +72,24 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
 
 ```bash
 pip install -r requirements.txt
-cp config.example.json config.json
-python settings.py   # ajouter des sources, cocher ce qu'on veut suivre
-python notifier.py   # lancer la surveillance
+python notifier.py   # le premier lancement ouvre la page de reglages dans le navigateur
 ```
 
 ### Binaire autonome
 
 Chaque release fournit des bundles pre-construits (Windows/Linux/Mac) sur
 la page [Releases](../../releases), sans Python a installer : un seul
-executable, `watch2notif`. Le lancer demarre la surveillance ; le panneau
-de reglage s'ouvre depuis son icone de tray ("Reglages...") ou avec
-`watch2notif --settings`.
+executable, `watch2notif`. Le lancer demarre la surveillance ; la page de
+reglages/historique s'ouvre depuis son icone de tray ("Reglages...") ou
+avec `watch2notif --settings`.
 
-Lorsqu'une mise a jour compatible est publiee, le tray pose la question
-avant tout telechargement. "Telecharger et installer" prepare et valide le
-nouveau bundle complet ; watch2notif ne se ferme que lorsque le programme de
-remplacement externe est pret, puis redemarre sur la nouvelle version. Si la
-preparation, le remplacement ou le redemarrage echoue, l'installation
-courante est conservee ou restauree. Une plateforme non prise en charge
-retombe sur la page de la release.
+Lorsqu'une mise a jour compatible est publiee, la page de reglages affiche
+un bandeau avant tout telechargement. "Telecharger et installer" prepare
+et valide le nouveau bundle complet ; watch2notif ne se ferme que lorsque
+le programme de remplacement externe est pret, puis redemarre sur la
+nouvelle version. Si la preparation, le remplacement ou le redemarrage
+echoue, l'installation courante est conservee ou restauree. Une
+plateforme non prise en charge retombe sur la page de la release.
 
 ## Construire le bundle soi-meme
 
@@ -207,9 +202,9 @@ GitHub.
 
 Enregistrer ensuite le module dans le dict `PROVIDERS` de
 `providers/__init__.py` (cle = type interne, valeur = le module). Rien
-d'autre ne change : `notifier.py` et `settings.py` recuperent tout
-provider enregistre via `PROVIDERS`, sans branchement specifique par
-provider.
+d'autre ne change : `notifier.py` et la page de reglages (`gui/`)
+recuperent tout provider enregistre via `PROVIDERS`, sans branchement
+specifique par provider.
 
 ## Alternatives existantes
 

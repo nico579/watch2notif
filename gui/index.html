@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>watch2notif</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>watch2notif</h1>
+  <div class="lang-toggle" id="lang-toggle">
+    <button type="button" data-lang="fr">FR</button>
+    <button type="button" data-lang="en">EN</button>
+  </div>
+</header>
+
+<div id="update-banner" class="update-banner" hidden>
+  <span id="update-text"></span>
+  <button type="button" id="update-install-btn" hidden></button>
+  <a id="update-release-link" href="#" target="_blank" rel="noopener" hidden></a>
+</div>
+
+<nav class="tabs">
+  <button type="button" class="tab-btn active" data-tab="settings" data-i18n="tab_settings"></button>
+  <button type="button" class="tab-btn" data-tab="history" data-i18n="tab_history"></button>
+</nav>
+
+<main>
+  <section id="tab-settings" class="tab-panel">
+    <label class="checkbox-row">
+      <input type="checkbox" id="autostart-check">
+      <span data-i18n="autostart_label"></span>
+    </label>
+    <label class="checkbox-row">
+      <input type="checkbox" id="pause-check">
+      <span data-i18n="tray_pause"></span>
+    </label>
+
+    <table id="feeds-table">
+      <thead>
+        <tr>
+          <th data-i18n="header_active"></th>
+          <th data-i18n="header_kind"></th>
+          <th data-i18n="header_name"></th>
+          <th data-i18n="header_url"></th>
+          <th data-i18n="header_interval"></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="feeds-body"></tbody>
+    </table>
+
+    <button type="button" id="add-feed-btn" data-i18n="add_feed_button"></button>
+    <p id="note-text" class="note" data-i18n="note_text"></p>
+
+    <div class="save-row">
+      <span id="save-status" class="save-status"></span>
+      <button type="button" id="save-btn" data-i18n="save_button"></button>
+    </div>
+  </section>
+
+  <section id="tab-history" class="tab-panel" hidden>
+    <p data-i18n="history_hint_text"></p>
+    <table id="history-table">
+      <thead>
+        <tr>
+          <th data-i18n="history_header_date"></th>
+          <th data-i18n="history_header_source"></th>
+          <th data-i18n="history_header_title"></th>
+        </tr>
+      </thead>
+      <tbody id="history-body"></tbody>
+    </table>
+    <button type="button" id="history-clear-btn" data-i18n="history_clear_button"></button>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

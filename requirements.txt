@@ -11,9 +11,11 @@ platformdirs==4.11.9
 win11toast==0.36.3; sys_platform == "win32"
 pync; sys_platform == "darwin"
 plyer; sys_platform == "linux"
-PySide6==6.11.2
-# Pas importe par le code : PyInstaller s'en sert au moment de la
-# construction pour convertir assets/watch2notif.png en icone .exe/.icns
-# native (watch2notif.spec). Rien n'y fait reference a l'execution, donc
-# ca ne finit pas dans le bundle.
+# Meme version que lidar2map/blink2video (verifiee sur cette machine) :
+# icone de zone de notification, remplace PySide6/QSystemTrayIcon.
+pystray==0.19.5
+# Utilise a l'execution par pystray (charge assets/watch2notif.png comme
+# image d'icone) ET par PyInstaller au moment de la construction pour
+# produire l'icone .exe/.icns native (watch2notif.spec) : plus seulement
+# un outil de build depuis le retrait de Qt.
 Pillow==12.3.0

@@ -1,20 +1,15 @@
 # Recette de construction du bundle autonome. Voir build.py, qui prepare
 # l'environnement isole puis appelle PyInstaller sur ce fichier.
 #
-# Un seul executable, watch2notif, et un seul toolkit GUI : Qt/PySide6,
-# pour la fenetre de reglages (settings.py) comme pour l'icone de tray
-# (QSystemTrayIcon dans notifier.py). Melanger Qt avec une lib de tray
-# separee (pystray) dans un meme binaire PyInstaller cassait pystray au
-# demarrage (shiboken patche `inspect` pour tout le process des que Qt
-# fait partie des dependances, meme sans etre importe en premier). --settings
-# (cf. le dispatch en bas de notifier.py) ouvre le panneau seul, en
-# sous-processus, pour un usage CLI/raccourci ; le tray, lui, l'ouvre
-# directement dans le process courant (meme boucle Qt). PyInstaller
-# detecte `import settings` meme conditionnel par analyse statique, pas
-# besoin de l'ajouter aux hiddenimports ; le hook Qt de
-# pyinstaller-hooks-contrib ne bundle que les modules Qt effectivement
-# importes (QtCore/QtGui/QtWidgets ici, pas QtWebEngine ni les autres
-# poids lourds).
+# Un seul executable, watch2notif. Reglages et historique sont une page
+# web (gui/), servie en HTTP local par _serve_web.py et ouverte dans le
+# navigateur par defaut - plus de fenetre Qt separee. L'icone de zone de
+# notification utilise pystray (meme bibliotheque que lidar2map et
+# blink2video) : plus de PySide6/QSystemTrayIcon dans ce projet, donc plus
+# du tout du conflit shiboken/pystray qui empechait de melanger les deux
+# dans un meme binaire PyInstaller (`inspect` patche pour tout le process
+# des que Qt fait partie des dependances). --settings (bas de notifier.py)
+# ouvre le navigateur sur l'instance en cours plutot qu'un panneau separe.
 #
 # Mode dossier, pas onefile : demarre instantanement, pas de reextraction
 # a chaque lancement (notifier tourne en continu au demarrage du systeme).
@@ -46,6 +41,14 @@ else:
 # fige, faute de trouver l'app vendorisee. Non teste ici (pas de Mac) :
 # a verifier sur un vrai build macOS.
 PYNC_DATAS = collect_data_files("pync") if sys.platform == "darwin" else []
+
+# Page de reglages/historique (index.html/app.js/style.css), servie telle
+# quelle en HTTP local par _serve_web.py (send_static) : ce sont des
+# fichiers statiques, jamais importes par du code Python, PyInstaller ne
+# les detecte donc pas tout seul (meme situation que gui/ dans
+# lidar2map.spec).
+GUI_DIR = Path(SPECPATH) / "gui"
+GUI_DATAS = [(str(f), "gui") for f in sorted(GUI_DIR.glob("*")) if f.is_file()]
 
 # Ressource VERSIONINFO du binaire Windows. Un PE PyInstaller sans editeur,
 # description ni copyright renseignes ressemble statistiquement aux
@@ -101,11 +104,13 @@ analysis = Analysis(
     ["notifier.py"],
     pathex=["."],
     hiddenimports=NOTIFY_HIDDEN,
-    # Charge a l'execution par notifier.py (tray) et settings.py (icone de
-    # fenetre) via RESOURCE_DIR/ICON_FILE (voir notifier.py).
-    datas=[(str(APP_ICON), "assets")] + PYNC_DATAS,
-    # tkinter n'est plus utilise depuis le passage du panneau de reglage a
-    # Qt/PySide6 : l'exclure evite d'embarquer Tcl/Tk pour rien.
+    # Icone chargee a l'execution par pystray (RESOURCE_DIR/ICON_FILE, voir
+    # notifier.py) ; gui/ est la page de reglages/historique (voir GUI_DATAS
+    # ci-dessus).
+    datas=[(str(APP_ICON), "assets")] + GUI_DATAS + PYNC_DATAS,
+    # tkinter : jamais importe par ce projet (page web, pas de GUI native) ;
+    # l'exclure evite d'embarquer Tcl/Tk pour rien si un hook tiers le
+    # detectait par erreur.
     excludes=["tkinter", "PyInstaller", "pytest"],
     noarchive=False,
 )
@@ -121,8 +126,9 @@ exe = EXE(
     strip=False,
     upx=False,
     # Pas de fenetre console : c'est un poller de fond, les notifications
-    # desktop et le systray sont le seul retour visible attendu (le
-    # panneau de reglage, lui, ouvre ses propres fenetres Qt).
+    # desktop et l'icone de zone de notification sont le seul retour
+    # visible attendu (les reglages/l'historique s'ouvrent dans le
+    # navigateur par defaut du systeme, pas une fenetre a part).
     console=False,
     # PNG source portable, converti par PyInstaller en ressource native sur
     # la plateforme de construction (meme mecanisme que blink2video/lidar2map).

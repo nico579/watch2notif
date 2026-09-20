@@ -1,19 +1,14 @@
 """Poll the sources enabled in config.json (RSS/Atom feeds, GitHub issues,
 see providers/) and fire a desktop notification for anything new.
 Cross-platform (Windows/Linux/Mac). Runs the polling in a background
-thread and a Qt system tray icon (pause/settings/quit) on the main
-thread.
+thread, serves the settings/history GUI on local HTTP (browser), and
+shows a pystray system tray icon (pause/settings/quit) on the main thread.
 
-Single binary, single GUI toolkit: the tray uses QSystemTrayIcon rather
-than a separate library (pystray) precisely so that Qt is the only GUI
-dependency in the whole executable — mixing pystray and PySide6 in one
-PyInstaller build makes shiboken's global import hook (which activates
-process-wide as soon as Qt is anywhere in the dependency graph, not only
-once actually imported) crash pystray's win32 backend on a `six`
-metapath incompatibility. One toolkit sidesteps that at the root instead
-of working around it. Settings opens as a plain widget in this same
-process (see run_tray's _open_settings); `--settings` (bottom of this
-file) still launches just the panel standalone, for a shortcut or CLI use.
+Meme architecture que lidar2map (_serve_web.py + gui/ + pystray) : un seul
+toolkit de zone de notification pour tous les projets, plus de Qt/PySide6
+dans watch2notif. --settings (bas de ce fichier) ouvre le navigateur sur
+l'instance en cours (ou en demarre une si aucune ne tourne) ; --no-tray
+sert aux tests et aux environnements sans zone de notification.
 """
 import calendar
 from dataclasses import dataclass, field
@@ -24,16 +19,16 @@ import json
 import math
 import os
 import platform
+import re
 import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
-
+import _serve_web
+import autostart_manager
 import data_paths
 import i18n
 import notification_history
@@ -52,11 +47,21 @@ STATE_SCHEMA_VERSION = 2
 BACKFILL_GRACE_SECONDS = 5 * 60
 MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
 
+# Port fixe (pas de recherche de plage comme lidar2map) : single_instance.py
+# interdit deja tout doublon, jamais deux serveurs a demarrer en parallele.
+# 8765=blink2video, 8766=lidar2map (voir leurs --port par defaut) : suite
+# logique, pas de collision si les trois tournent en meme temps sur la
+# meme machine.
+PORT = 8767
+BIND = "127.0.0.1"
+
 # A l'inverse de data_paths.DATA_DIR : les assets embarques (watch2notif.spec,
 # datas=) vivent dans sys._MEIPASS une fois fige (le dossier _internal/ en
 # mode dossier), pas a cote de l'executable ni dans le dossier de donnees.
 RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
+GUI_DIR = RESOURCE_DIR / "gui"
+
 
 class _TimestampedLog:
     """Prefixe chaque ligne ecrite d'un horodatage ISO, sans toucher aux
@@ -92,8 +97,61 @@ elif sys.stdout is not None:
     sys.stdout.reconfigure(line_buffering=True)
 
 
+def default_config() -> dict:
+    return {"poll_interval_seconds": 60, "feeds": [], "lang": i18n.detect_default_lang()}
+
+
 def load_config() -> dict:
+    if not CONFIG_FILE.exists():
+        return default_config()
     return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+
+
+def save_config(config: dict) -> None:
+    tmp = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    os.replace(tmp, CONFIG_FILE)
+
+
+def slugify(label: str, existing_keys: set) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_") or "source"
+    candidate = slug
+    counter = 2
+    while candidate in existing_keys:
+        candidate = f"{slug}_{counter}"
+        counter += 1
+    return candidate
+
+
+def build_feeds_from_rows(rows: list) -> list:
+    """Meme semantique que l'ancien SettingsWindow.on_save() (Qt) : une
+    ligne sans label ni url est ignoree, la clef existante d'une ligne
+    (reenvoyee par le client apres un premier save) est reutilisee plutot
+    que reglissifiee - sinon une source deja active perdrait son historique
+    de dedup (state/<key>.json) a chaque sauvegarde suivante."""
+    existing_keys: set = set()
+    feeds = []
+    for row in rows:
+        label = str(row.get("label") or "").strip()
+        url_value = str(row.get("url") or "").strip()
+        if not label and not url_value:
+            continue
+        key = str(row.get("key") or "").strip() or slugify(label, existing_keys)
+        existing_keys.add(key)
+        try:
+            interval_seconds = int(row.get("interval_seconds"))
+        except (TypeError, ValueError):
+            fallback_provider = PROVIDERS.get(row.get("kind")) or PROVIDERS[DEFAULT_KIND]
+            interval_seconds = getattr(fallback_provider, "DEFAULT_INTERVAL_SECONDS", 60)
+        feeds.append({
+            "key": key,
+            "label": label or key,
+            "url": url_value,
+            "enabled": bool(row.get("enabled")),
+            "kind": row.get("kind") if row.get("kind") in PROVIDERS else DEFAULT_KIND,
+            "interval_seconds": interval_seconds,
+        })
+    return feeds
 
 
 def state_file(feed_key: str) -> Path:
@@ -180,8 +238,8 @@ def save_seen_ids(feed_key: str, seen_ids: set[str]) -> None:
 
 def _write_json_atomic(path: Path, data) -> None:
     """Ecrit dans un fichier temporaire puis renomme : un lecteur concurrent
-    (poll_loop tournant pendant un save_config depuis settings.py, par
-    exemple) ne peut jamais voir un fichier tronque/partiellement ecrit."""
+    (poll_loop tournant pendant une sauvegarde de reglages, par exemple) ne
+    peut jamais voir un fichier tronque/partiellement ecrit."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(tmp, path)
@@ -402,24 +460,88 @@ def poll_feed(feed: dict) -> None:
         print(f"[{label}] {sent} nouvelle(s) notif(s) envoyee(s).")
 
 
-class UpdateSignals(QObject):
-    """Pont thread de polling/worker -> thread Qt."""
-
-    available = Signal(object)
-    prepared = Signal(object)
-    failed = Signal(object)
+UPDATE_NONE = "none"
+UPDATE_AVAILABLE = "available"
+UPDATE_PREPARING = "preparing"
+UPDATE_FAILED = "failed"
 
 
-def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> None:
+class SharedState:
+    """Etat partage entre poll_loop (thread de fond), le serveur HTTP (un
+    thread par requete) et le tray (thread principal), protege par un
+    verrou. Remplace les signaux Qt (UpdateSignals) et les attributs
+    d'instance de l'ancien TrayApp : ceux-la ne servaient qu'a traverser
+    sans risque la frontiere entre threads, ce que ce verrou fait tout
+    aussi bien sans dependre de la boucle d'evenements Qt."""
+
+    def __init__(self, pause_event: threading.Event):
+        self._lock = threading.Lock()
+        self.pause_event = pause_event
+        self.update_status = UPDATE_NONE
+        self.update_info: dict | None = None
+        self.update_error: dict | None = None
+        self.update_inflight = False
+
+    def update_snapshot(self) -> dict:
+        with self._lock:
+            return {
+                "status": self.update_status,
+                "info": dict(self.update_info) if self.update_info else None,
+                "error": dict(self.update_error) if self.update_error else None,
+            }
+
+    def update_info_snapshot(self) -> dict | None:
+        with self._lock:
+            return dict(self.update_info) if self.update_info else None
+
+    def mark_update_seen(self, info: dict | None) -> None:
+        """Appele par poll_loop a chaque cycle avec le resultat de
+        update_check.disponible(). Ne perd jamais l'etat d'un
+        telechargement deja en cours si un check concurrent revient
+        temporairement vide (meme garde que l'ancien _on_update_available)."""
+        with self._lock:
+            if not info:
+                if not self.update_inflight:
+                    self.update_info = None
+                    self.update_status = UPDATE_NONE
+                return
+            self.update_info = dict(info)
+            if not self.update_inflight:
+                self.update_status = UPDATE_AVAILABLE
+
+    def begin_update(self) -> bool:
+        """Vrai (et passe en PREPARING) si rien n'est deja en cours et
+        qu'une version est bien connue - le worker ne doit alors demarrer
+        qu'une fois, meme si l'utilisateur clique deux fois vite sur le
+        bouton Installer."""
+        with self._lock:
+            if not self.update_info or self.update_inflight:
+                return False
+            self.update_inflight = True
+            self.update_status = UPDATE_PREPARING
+            self.update_error = None
+            return True
+
+    def mark_update_failed(self, error: dict) -> None:
+        with self._lock:
+            self.update_inflight = False
+            self.update_status = UPDATE_FAILED
+            self.update_error = dict(error)
+
+    def clear_inflight(self) -> None:
+        with self._lock:
+            self.update_inflight = False
+
+
+def poll_loop(state: SharedState) -> None:
     STATE_DIR.mkdir(exist_ok=True)
     print("watch2notif demarre.")
 
     next_due: dict = {}
     notified_version = None
-    emitted_version = object()
 
     while True:
-        if pause_event.is_set():
+        if state.pause_event.is_set():
             time.sleep(5)
             continue
 
@@ -435,7 +557,7 @@ def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> No
             active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
 
             if not active_feeds:
-                print("aucune source active dans config.json (lance --settings).")
+                print("aucune source active dans config.json (ouvre les reglages depuis le tray).")
 
             now = time.time()
             for feed in active_feeds:
@@ -450,10 +572,7 @@ def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> No
                 next_due[key] = now + interval
 
             info = update_check.disponible(data_paths.DATA_DIR)
-            available_version = info.get("version") if info else None
-            if available_version != emitted_version:
-                emitted_version = available_version
-                update_signals.available.emit(dict(info) if info else None)
+            state.mark_update_seen(info)
             if info and info["version"] != notified_version:
                 notified_version = info["version"]
                 notify_backend.notify(
@@ -466,29 +585,6 @@ def poll_loop(pause_event: threading.Event, update_signals: UpdateSignals) -> No
             print(f"erreur dans le cycle de poll, on reessaie au prochain: {exc}")
 
         time.sleep(5)
-
-
-def _build_tray_icon() -> QIcon:
-    return QIcon(str(ICON_FILE))
-
-
-def _show_windows_window(window) -> bool | None:
-    """Synchronise l'etat Qt avec le HWND apres un clic de tray Windows.
-
-    Sur Linux/macOS, Qt gere seul la fenetre. Sous Windows, on a observe
-    QWidget.isVisible() == True alors que le HWND n'avait pas WS_VISIBLE ;
-    ShowWindow remet explicitement les deux etats en phase.
-    """
-    if platform.system() != "Windows":
-        return None
-    import ctypes
-
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    hwnd = int(window.winId())
-    user32.ShowWindow(hwnd, 5)  # SW_SHOW
-    user32.BringWindowToTop(hwnd)
-    user32.SetForegroundWindow(hwnd)
-    return bool(user32.IsWindowVisible(hwnd))
 
 
 def open_url(url: str) -> None:
@@ -505,445 +601,303 @@ def open_url(url: str) -> None:
 HELP_URL = f"https://github.com/{update_check.DEPOT}#readme"
 
 
-UPDATE_NONE = "none"
-UPDATE_AVAILABLE = "available"
-UPDATE_PROMPTING = "prompting"
-UPDATE_DECLINED = "declined"
-UPDATE_PREPARING = "preparing"
-UPDATE_FAILED = "failed"
+def _run_update_worker(state: SharedState, expected_version: str, stop_event: threading.Event) -> None:
+    """Telecharge, verifie et installe la mise a jour vers expected_version,
+    puis demande l'arret du process (stop_event) pour laisser le helper
+    externe (self_update.launch_prepared_update) prendre le relais. Meme
+    sequence en 3 etapes (prepare, launch, commit) et meme nettoyage par
+    etape que l'ancien TrayApp._prepare_update_worker/_on_update_prepared/
+    _on_update_failed - seule la frontiere de thread Qt disparait, plus
+    besoin d'y repasser la main pour agir sur le resultat."""
+    try:
+        latest = update_check.disponible(data_paths.DATA_DIR, force=True)
+        if not latest:
+            raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
+        if latest.get("version") != expected_version:
+            # Une version plus recente encore est apparue entre le clic et
+            # ce cycle : redevient "disponible" avec la nouvelle cible,
+            # l'utilisateur reclique s'il veut l'installer (pas de dialogue
+            # a rouvrir automatiquement, la page web reflete l'etat au
+            # prochain rafraichissement).
+            state.mark_update_seen(latest)
+            state.clear_inflight()
+            return
+        prepared = self_update.prepare_update(latest, update_check.DEPOT)
+    except self_update.UpdateError as exc:
+        state.mark_update_failed(exc.payload())
+        return
+    except Exception as exc:
+        state.mark_update_failed({"code": "prepare_failed", "detail": str(exc)})
+        return
+
+    try:
+        self_update.launch_prepared_update(prepared)
+    except self_update.UpdateError as exc:
+        self_update.cleanup_prepared(prepared)
+        state.mark_update_failed(exc.payload())
+        return
+    except Exception as exc:
+        self_update.cleanup_prepared(prepared)
+        state.mark_update_failed({"code": "prepare_failed", "detail": str(exc)})
+        return
+
+    try:
+        self_update.commit_prepared_update(prepared)
+    except self_update.UpdateError as exc:
+        self_update.abort_prepared_update(prepared)
+        state.mark_update_failed(exc.payload())
+        return
+
+    print(f"mise a jour {expected_version} installee, arret pour laisser la main au helper.")
+    stop_event.set()
 
 
-class TrayApp(QObject):
-    def __init__(self, lang: str, pause_event: threading.Event, update_signals: UpdateSignals):
-        super().__init__()
-        self.lang = lang
-        self.pause_event = pause_event
-        self.update_signals = update_signals
-        self.update_info = None
-        self.update_status = UPDATE_NONE
-        self.update_inflight = False
-        self.prompted_versions: set[str] = set()
-        self.update_dialog = None
-        self.progress_dialog = None
-        self.error_dialog = None
-        self.settings_window = None
-        self.history_window = None
+def _tray_disponible() -> bool:
+    """Faux si pystray ou son image ne peuvent pas etre charges ici :
+    bibliotheque absente, ou aucun backend de zone de notification (Linux
+    sans AppIndicator/GTK, session sans affichage). except Exception, pas
+    ImportError : sur Linux sans serveur X11, importer pystray leve
+    Xlib.error.DisplayNameError (un RuntimeError, pas un ImportError) -
+    constate en reel sur le build CI de lidar2map. Meme garde que
+    blink2video/tray.py.disponible()."""
+    try:
+        import pystray  # noqa: F401
+        from PIL import Image  # noqa: F401
+    except Exception:
+        return False
+    return True
 
-        self.update_signals.available.connect(
-            self._on_update_available,
-            Qt.ConnectionType.QueuedConnection,
-        )
-        self.update_signals.prepared.connect(
-            self._on_update_prepared,
-            Qt.ConnectionType.QueuedConnection,
-        )
-        self.update_signals.failed.connect(
-            self._on_update_failed,
-            Qt.ConnectionType.QueuedConnection,
-        )
 
-        self.tray = QSystemTrayIcon(_build_tray_icon())
-        self.tray.setToolTip("watch2notif")
-        self.menu = QMenu()
-        # Ces QAction doivent rester les memes pendant toute la vie du tray.
-        # Les detruire/recreer dans aboutToShow peut laisser Windows avec une
-        # action native perimee : le clic ferme alors le menu sans appeler le
-        # slot (constate sur l'action Reglages).
-        self.pause_action = QAction("", self.menu, checkable=True)
-        self.pause_action.toggled.connect(self._toggle_pause)
-        self.settings_action = QAction("", self.menu)
-        self.settings_action.triggered.connect(self._open_settings)
-        self.history_action = QAction("", self.menu)
-        self.history_action.triggered.connect(self._open_history)
-        self.update_action = QAction("", self.menu)
-        self.update_action.triggered.connect(self._open_update_from_menu)
-        self.help_action = QAction("", self.menu)
-        self.help_action.triggered.connect(lambda _checked=False: open_url(HELP_URL))
-        self.quit_action = QAction("", self.menu)
-        self.quit_action.triggered.connect(QApplication.quit)
-        self.menu.addActions(
-            [
-                self.pause_action,
-                self.settings_action,
-                self.history_action,
-                self.update_action,
-                self.help_action,
-                self.quit_action,
-            ]
-        )
-        self.menu.aboutToShow.connect(self._rebuild_menu)
-        self.tray.setContextMenu(self.menu)
-        self._rebuild_menu()
-        self.tray.show()
+def _build_tray_image():
+    from PIL import Image
 
-    def _rebuild_menu(self) -> None:
-        # Relu a chaque ouverture (pas seulement au demarrage) : sinon un
-        # changement de langue fait dans les reglages ne se voit dans le
-        # tray qu'au prochain redemarrage de l'appli.
-        self.lang = self._current_lang()
-        self.pause_action.setText(i18n.t("tray_pause", self.lang))
-        signals_were_blocked = self.pause_action.blockSignals(True)
-        self.pause_action.setChecked(self.pause_event.is_set())
-        self.pause_action.blockSignals(signals_were_blocked)
-        self.settings_action.setText(i18n.t("tray_settings", self.lang))
-        self.history_action.setText(i18n.t("tray_history", self.lang))
+    return Image.open(str(ICON_FILE))
 
-        info = self.update_info
-        if info:
-            automatic, _reason = self_update.can_install_automatically()
-            if not automatic:
-                key = "tray_update_view"
-            elif self.update_status == UPDATE_PREPARING:
-                key = "tray_update_downloading"
-            elif self.update_status == UPDATE_FAILED:
-                key = "tray_update_retry"
-            else:
-                key = "tray_update_install"
-            self.update_action.setText(i18n.t(key, self.lang, version=info["version"]))
-            self.update_action.setEnabled(self.update_status != UPDATE_PREPARING)
-            self.update_action.setVisible(True)
-        else:
-            self.update_action.setEnabled(False)
-            self.update_action.setVisible(False)
 
-        self.help_action.setText(i18n.t("tray_help", self.lang))
-        self.quit_action.setText(i18n.t("tray_quit", self.lang))
+def _construire_tray(url: str, state: SharedState, stop_event: threading.Event):
+    """Icone de zone de notification : Pause/Reprendre (coche selon
+    pause_event), Reglages/Historique (ouvrent le navigateur), Mise a jour
+    (visible seulement si une version est disponible), Aide, Quitter.
+    Contenu propre a watch2notif (pause de polling en particulier, absent
+    de lidar2map/blink2video) - seul le mecanisme (pystray, generateur de
+    menu relu periodiquement) est partage avec eux.
 
-    def _toggle_pause(self, checked: bool) -> None:
-        if checked:
-            self.pause_event.set()
-        else:
-            self.pause_event.clear()
+    Rafraichissement : meme contournement que blink2video/tray.py - le
+    backend win32 de pystray ne rappelle pas le generateur menu() a chaque
+    clic droit, seul un icon.update_menu() explicite le fait (verifie dans
+    pystray/_win32.py). Un thread dedie l'appelle toutes les 5s pour que
+    pause/mise a jour restent a jour sans redemarrer l'icone."""
+    import pystray
 
-    def _current_lang(self) -> str:
+    def _lang() -> str:
         try:
             return load_config().get("lang") or i18n.detect_default_lang()
         except (OSError, json.JSONDecodeError, AttributeError):
-            return self.lang or i18n.detect_default_lang()
+            return i18n.detect_default_lang()
 
-    @Slot(object)
-    def _on_update_available(self, info) -> None:
-        if not info:
-            # Ne pas arracher l'etat des mains d'une installation deja
-            # preparee si un check concurrent devient temporairement vide.
-            if not self.update_inflight:
-                self.update_info = None
-                self.update_status = UPDATE_NONE
-                self._rebuild_menu()
-            return
+    def _ouvrir(icon=None, item=None):
+        webbrowser.open(url)
 
-        info = dict(info)
-        previous_version = self.update_info.get("version") if self.update_info else None
-        version = str(info.get("version") or "")
-        self.update_info = info
-        if version != previous_version and not self.update_inflight:
-            self.update_status = UPDATE_AVAILABLE
-        self._rebuild_menu()
-
-        if version and version not in self.prompted_versions and not self.update_inflight:
-            self._show_update_prompt()
-
-    @Slot(bool)
-    def _open_update_from_menu(self, _checked: bool = False) -> None:
-        # Meme raison que _open_settings/_open_history : reporter au tour
-        # suivant de la boucle Qt pour eviter la course avec la fermeture
-        # du menu natif (sinon la boite de dialogue est creee mais reste
-        # cachee, et un second clic ne fait rien car update_dialog est deja
-        # pose).
-        QTimer.singleShot(0, self._show_update_prompt_from_menu)
-
-    @Slot()
-    def _show_update_prompt_from_menu(self) -> None:
-        if self.update_info and not self.update_inflight:
-            self._show_update_prompt()
-
-    def _show_update_prompt(self) -> bool:
-        if not self.update_info or self.update_dialog is not None:
-            return False
-        info = dict(self.update_info)
-        self.lang = self._current_lang()
-        automatic, _reason = self_update.can_install_automatically()
-        box = QMessageBox()
-        box.setWindowIcon(_build_tray_icon())
-        box.setIcon(QMessageBox.Icon.Question if automatic else QMessageBox.Icon.Information)
-        box.setWindowModality(Qt.WindowModality.ApplicationModal)
-        if automatic:
-            box.setWindowTitle(i18n.t("update_prompt_title", self.lang))
-            box.setText(
-                i18n.t(
-                    "update_prompt_body",
-                    self.lang,
-                    version=info["version"],
-                    current=update_check.VERSION,
-                )
-            )
-            accept_button = box.addButton(
-                i18n.t("update_install_button", self.lang),
-                QMessageBox.ButtonRole.AcceptRole,
-            )
+    def _basculer_pause(icon, item):
+        if state.pause_event.is_set():
+            state.pause_event.clear()
         else:
-            box.setWindowTitle(i18n.t("update_source_title", self.lang))
-            box.setText(i18n.t("update_source_body", self.lang))
-            accept_button = box.addButton(
-                i18n.t("update_open_release_button", self.lang),
-                QMessageBox.ButtonRole.AcceptRole,
-            )
-        box.addButton(
-            i18n.t("update_later_button", self.lang),
-            QMessageBox.ButtonRole.RejectRole,
+            state.pause_event.set()
+
+    def _quitter(icon, item):
+        stop_event.set()
+        icon.stop()
+
+    def _menu():
+        lang = _lang()
+        yield pystray.MenuItem(
+            i18n.t("tray_pause", lang),
+            _basculer_pause,
+            checked=lambda item: state.pause_event.is_set(),
         )
-        box.finished.connect(
-            lambda _result, dialog=box, accepted=accept_button, install=automatic, snapshot=info:
-                self._finish_update_prompt(dialog, accepted, install, snapshot)
-        )
-        self.update_status = UPDATE_PROMPTING
-        self.update_dialog = box
-        self.prompted_versions.add(str(info.get("version") or ""))
-        box.open()
-        box.raise_()
-        box.activateWindow()
-        _show_windows_window(box)
-        return True
+        yield pystray.MenuItem(i18n.t("tray_settings", lang), _ouvrir, default=True)
+        yield pystray.MenuItem(i18n.t("tray_history", lang), _ouvrir)
 
-    def _finish_update_prompt(self, dialog: QMessageBox, accept_button, automatic: bool, info: dict) -> None:
-        clicked = dialog.clickedButton()
-        self.update_dialog = None
-        dialog.deleteLater()
-        current_version = (self.update_info or {}).get("version")
-        if current_version != info.get("version"):
-            self.update_status = UPDATE_AVAILABLE
-            self._rebuild_menu()
-            if current_version not in self.prompted_versions:
-                self._show_update_prompt()
-            return
-        if clicked is not accept_button:
-            self.update_status = UPDATE_DECLINED
-            self._rebuild_menu()
-            return
-        if not automatic:
-            open_url(info.get("page"))
-            self.update_status = UPDATE_DECLINED
-            self._rebuild_menu()
-            return
-        self._start_update(info)
+        snapshot = state.update_snapshot()
+        info = snapshot["info"]
+        if info:
+            if snapshot["status"] == UPDATE_PREPARING:
+                key = "tray_update_downloading"
+            elif snapshot["status"] == UPDATE_FAILED:
+                key = "tray_update_retry"
+            else:
+                automatic, _reason = self_update.can_install_automatically()
+                key = "tray_update_install" if automatic else "tray_update_view"
+            yield pystray.MenuItem(i18n.t(key, lang, version=info["version"]), _ouvrir)
 
-    def _start_update(self, info: dict) -> None:
-        if not self.update_info or self.update_inflight:
-            return
-        self.lang = self._current_lang()
-        version = info["version"]
-        self.update_inflight = True
-        self.update_status = UPDATE_PREPARING
-        self._rebuild_menu()
+        yield pystray.MenuItem(i18n.t("tray_help", lang), lambda icon, item: open_url(HELP_URL))
+        yield pystray.MenuItem(i18n.t("tray_quit", lang), _quitter)
 
-        progress = QMessageBox()
-        progress.setWindowIcon(_build_tray_icon())
-        progress.setIcon(QMessageBox.Icon.Information)
-        progress.setWindowTitle(i18n.t("update_progress_title", self.lang))
-        progress.setText(i18n.t("update_progress_body", self.lang, version=version))
-        progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
-        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
-        self.progress_dialog = progress
-        progress.open()
+    icon = pystray.Icon("watch2notif", _build_tray_image(), "watch2notif", menu=pystray.Menu(_menu))
 
-        threading.Thread(target=self._prepare_update_worker, args=(version,), daemon=True).start()
+    def _rafraichir():
+        while not stop_event.wait(timeout=5):
+            try:
+                icon.update_menu()
+            except Exception:
+                pass
 
-    def _prepare_update_worker(self, expected_version: str) -> None:
-        prepared = None
+    threading.Thread(target=_rafraichir, daemon=True).start()
+    return icon
+
+
+def build_api_routes(pause_event: threading.Event, state: SharedState, stop_event: threading.Event) -> tuple:
+    """Construit (api_routes, post_routes) pour _serve_web.demarrer().
+    Fonction a part de main() : un test peut ainsi monter le vrai serveur
+    avec les vraies routes sur un port dedie, sans passer par
+    single_instance/migrer_donnees_existantes/le tray - juste l'API HTTP."""
+
+    def _api_strings() -> dict:
+        return i18n.STRINGS
+
+    def _api_state() -> dict:
+        automatic, reason = self_update.can_install_automatically()
+        return {
+            "version": update_check.VERSION,
+            "config": load_config(),
+            "providers": {
+                kind: {
+                    "label": provider.LABEL,
+                    "default_interval_seconds": getattr(provider, "DEFAULT_INTERVAL_SECONDS", 60),
+                }
+                for kind, provider in PROVIDERS.items()
+            },
+            "default_kind": DEFAULT_KIND,
+            "autostart_enabled": autostart_manager.is_enabled(),
+            "paused": pause_event.is_set(),
+            "update": {
+                **state.update_snapshot(),
+                "can_install_automatically": automatic,
+                "reason": reason,
+            },
+        }
+
+    def _api_history() -> dict:
+        return {"entries": notification_history.load()}
+
+    def _api_save_config(payload: dict) -> dict:
+        feeds = build_feeds_from_rows(payload.get("feeds") or [])
+        config = load_config()
+        config["feeds"] = feeds
+        config["lang"] = payload.get("lang") or config.get("lang") or i18n.detect_default_lang()
+        save_config(config)
+
         try:
-            # Un clic Installer force une relecture GitHub : le cache qui a
-            # servi au signalement peut etre ancien ou ne pas encore contenir
-            # digest/size (migration depuis les versions precedentes).
-            latest = update_check.disponible(data_paths.DATA_DIR, force=True)
-            if not latest:
-                raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
-            if latest.get("version") != expected_version:
-                self.update_signals.failed.emit({"code": "version_changed", "info": latest})
-                return
-            prepared = self_update.prepare_update(latest, update_check.DEPOT)
-            self_update.launch_prepared_update(prepared)
-            self.update_signals.prepared.emit(prepared)
-        except self_update.UpdateError as exc:
-            if prepared is not None:
-                self_update.cleanup_prepared(prepared)
-            self.update_signals.failed.emit(exc.payload())
+            wants_autostart = bool(payload.get("autostart_enabled"))
+            currently_enabled = autostart_manager.is_enabled()
+            if wants_autostart and not currently_enabled:
+                autostart_manager.enable()
+            elif not wants_autostart and currently_enabled:
+                autostart_manager.disable()
         except Exception as exc:
-            if prepared is not None:
-                self_update.cleanup_prepared(prepared)
-            self.update_signals.failed.emit({"code": "prepare_failed", "detail": str(exc)})
+            return {"error": str(exc), "feeds": feeds}
 
-    @Slot(object)
-    def _on_update_prepared(self, prepared) -> None:
-        try:
-            self_update.commit_prepared_update(prepared)
-        except self_update.UpdateError as exc:
-            self_update.abort_prepared_update(prepared)
-            self._on_update_failed(exc.payload())
-            return
-        if self.progress_dialog is not None:
-            self.progress_dialog.done(0)
-            self.progress_dialog.deleteLater()
-            self.progress_dialog = None
-        QApplication.quit()
+        return {"ok": True, "feeds": feeds}
 
-    @Slot(object)
-    def _on_update_failed(self, error) -> None:
-        if self.progress_dialog is not None:
-            self.progress_dialog.done(0)
-            self.progress_dialog.deleteLater()
-            self.progress_dialog = None
-        self.update_inflight = False
-        if (error or {}).get("code") == "version_changed":
-            self.update_status = UPDATE_AVAILABLE
-            self._on_update_available((error or {}).get("info"))
-            return
-        self.update_status = UPDATE_FAILED
-        self._rebuild_menu()
-        self.lang = self._current_lang()
-
-        code = str((error or {}).get("code") or "prepare_failed")
-        detail = str((error or {}).get("detail") or "")
-        if detail:
-            print(f"mise a jour echouee [{code}]: {detail}")
-        if code == "download_failed":
-            error_key = "update_error_download"
-        elif code in {"integrity_failed", "unsafe_archive", "invalid_payload"}:
-            error_key = "update_error_integrity"
-        elif code in {"unsupported_target", "missing_asset", "invalid_asset", "source_mode"}:
-            error_key = "update_error_compatibility"
-        elif code in {"helper_failed", "unsafe_install"}:
-            error_key = "update_error_installer"
+    def _api_set_pause(payload: dict) -> dict:
+        if payload.get("paused"):
+            pause_event.set()
         else:
-            error_key = "update_error_generic"
-        friendly_error = i18n.t(error_key, self.lang)
-        box = QMessageBox()
-        box.setWindowIcon(_build_tray_icon())
-        box.setIcon(QMessageBox.Icon.Critical)
-        box.setWindowTitle(i18n.t("update_error_title", self.lang))
-        box.setText(i18n.t("update_error_body", self.lang, error=friendly_error))
-        release_button = box.addButton(
-            i18n.t("update_open_release_button", self.lang),
-            QMessageBox.ButtonRole.ActionRole,
-        )
-        box.addButton(i18n.t("update_close_button", self.lang), QMessageBox.ButtonRole.RejectRole)
-        box.finished.connect(
-            lambda _result, dialog=box, button=release_button: self._finish_error_dialog(dialog, button)
-        )
-        self.error_dialog = box
-        box.open()
+            pause_event.clear()
+        return {"ok": True, "paused": pause_event.is_set()}
 
-    def _finish_error_dialog(self, dialog: QMessageBox, release_button) -> None:
-        if dialog.clickedButton() is release_button:
-            open_url((self.update_info or {}).get("page"))
-        self.error_dialog = None
-        dialog.deleteLater()
+    def _api_clear_history(_payload: dict) -> dict:
+        notification_history.clear()
+        return {"ok": True}
 
-    @Slot(bool)
-    def _open_settings(self, _checked: bool = False) -> None:
-        # triggered() est emis avant que le menu natif du tray ait fini de
-        # se fermer. Sous Windows, afficher une autre top-level window dans
-        # cette pile d'evenements peut la laisser creee mais cachee. Reporter
-        # l'ouverture au tour suivant de la boucle Qt evite cette course.
-        print("ouverture des reglages demandee depuis le tray.")
-        QTimer.singleShot(0, self._show_settings)
+    def _api_update_install(_payload: dict) -> dict:
+        if not state.begin_update():
+            return {"error": "aucune mise a jour disponible ou deja en cours"}
+        info = state.update_info_snapshot()
+        threading.Thread(
+            target=_run_update_worker, args=(state, info["version"], stop_event), daemon=True,
+        ).start()
+        return {"ok": True}
 
-    @Slot()
-    def _show_settings(self) -> None:
-        import settings
-
-        if self.settings_window is None:
-            self.settings_window = settings.SettingsWindow(settings.load_config())
-        # show() seul ne restaure pas une fenetre minimisee. showNormal()
-        # couvre a la fois la premiere ouverture, une fermeture et un clic
-        # ulterieur depuis le tray.
-        self.settings_window.showNormal()
-        self.settings_window.raise_()
-        self.settings_window.activateWindow()
-        _show_windows_window(self.settings_window)
-        # Certains menus natifs terminent leur masquage apres le prochain
-        # evenement Qt. Une seconde verification courte rend l'ouverture
-        # deterministe sans delai perceptible pour l'utilisateur.
-        QTimer.singleShot(150, self._ensure_settings_visible)
-
-    @Slot()
-    def _ensure_settings_visible(self) -> None:
-        if self.settings_window is None:
-            return
-        if not self.settings_window.isVisible() or self.settings_window.isMinimized():
-            self.settings_window.showNormal()
-        self.settings_window.raise_()
-        self.settings_window.activateWindow()
-        native_visible = _show_windows_window(self.settings_window)
-        print(
-            "fenetre reglages visible: "
-            f"qt={self.settings_window.isVisible()}, native={native_visible}"
-        )
-
-    @Slot(bool)
-    def _open_history(self, _checked: bool = False) -> None:
-        # Meme raison que _open_settings : reporter au tour suivant de la
-        # boucle Qt pour eviter la course avec la fermeture du menu natif.
-        QTimer.singleShot(0, self._show_history)
-
-    @Slot()
-    def _show_history(self) -> None:
-        import history_window
-
-        self.lang = self._current_lang()
-        if self.history_window is None:
-            self.history_window = history_window.HistoryWindow(self.lang)
-        else:
-            self.history_window.reload(self.lang)
-        self.history_window.showNormal()
-        self.history_window.raise_()
-        self.history_window.activateWindow()
-        _show_windows_window(self.history_window)
+    api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history}
+    post_routes = {
+        "save-config": _api_save_config,
+        "set-pause": _api_set_pause,
+        "clear-history": _api_clear_history,
+        "update-install": _api_update_install,
+    }
+    return api_routes, post_routes
 
 
 def main() -> None:
     data_paths.migrer_donnees_existantes()
+    url = f"http://127.0.0.1:{PORT}/"
+
     if not single_instance.acquire(data_paths.DATA_DIR):
         # Autostart + lancement manuel, ou double-clic accidentel : pas
-        # d'erreur bruyante pour un poller de fond, on cede juste la place
-        # a l'instance deja active.
-        print("une instance de watch2notif tourne deja, arret.")
+        # d'erreur bruyante pour un poller de fond. --settings explicite
+        # reste utile meme dans ce cas : rejoindre les reglages de
+        # l'instance deja active plutot que de ne rien faire.
+        if "--settings" in sys.argv[1:]:
+            webbrowser.open(url)
+        else:
+            print("une instance de watch2notif tourne deja, arret.")
         return
 
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setWindowIcon(QIcon(str(ICON_FILE)))
+    first_run = not CONFIG_FILE.exists()
+    if first_run:
+        save_config(default_config())
 
-    if not CONFIG_FILE.exists():
-        # Premier lancement d'un bundle telecharge (pas de config.json a
-        # cote de l'exe) : ouvrir directement les reglages plutot que
-        # quitter en silence - en windowed (console=False) personne ne
-        # verrait jamais un message d'erreur en ligne de commande.
-        import settings
-
-        first_run_window = settings.SettingsWindow(settings.load_config())
-        first_run_window.show()
-        app.exec()
-        if not CONFIG_FILE.exists():
-            return
-
-    lang = load_config().get("lang") or i18n.detect_default_lang()
     pause_event = threading.Event()
-    update_signals = UpdateSignals()
+    state = SharedState(pause_event)
+    stop_event = threading.Event()
+    api_routes, post_routes = build_api_routes(pause_event, state, stop_event)
 
-    # Sans ca, fermer la fenetre de reglages (ouverte depuis le tray)
-    # quitterait toute l'appli : ce n'est pas une "fenetre principale",
-    # le tray doit continuer a tourner apres sa fermeture.
-    app.setQuitOnLastWindowClosed(False)
-    # La reference doit survivre a main() (tant que la boucle Qt tourne) :
-    # sans variable pour la retenir, TrayApp et son QSystemTrayIcon sont
-    # garbage-collectes des la fin de cette ligne, et l'icone disparait
-    # silencieusement (aucune erreur, isVisible() valait bien True juste
-    # avant) - constate en debuggant ce fichier meme.
-    tray_app = TrayApp(lang, pause_event, update_signals)  # noqa: F841
+    try:
+        server = _serve_web.demarrer(
+            bind=BIND, port=PORT, trusted_host="", gui_dir=GUI_DIR,
+            api_routes=api_routes, post_routes=post_routes,
+        )
+    except OSError as exc:
+        print(f"impossible d'ecouter sur {BIND}:{PORT}: {exc}")
+        return
 
-    threading.Thread(target=poll_loop, args=(pause_event, update_signals), daemon=True).start()
+    print(f"watch2notif web GUI: {url}")
+    if first_run or "--settings" in sys.argv[1:]:
+        threading.Timer(0.5, webbrowser.open, [url]).start()
 
-    app.exec()
+    threading.Thread(target=poll_loop, args=(state,), daemon=True).start()
+
+    def _arreter_serveur():
+        server.shutdown()
+        server.server_close()
+
+    if "--no-tray" in sys.argv[1:]:
+        print("--no-tray: Ctrl+C pour arreter.")
+        try:
+            stop_event.wait()
+        except KeyboardInterrupt:
+            pass
+        _arreter_serveur()
+        print("watch2notif arrete.")
+        return
+
+    if not _tray_disponible():
+        print("zone de notification indisponible ici (pas d'affichage/AppIndicator) - Ctrl+C pour arreter.")
+        try:
+            stop_event.wait()
+        except KeyboardInterrupt:
+            pass
+        _arreter_serveur()
+        print("watch2notif arrete.")
+        return
+
+    print("regarde dans la zone de notification pour l'icone watch2notif.")
+    icon = _construire_tray(url, state, stop_event)
+    icon.run()  # bloque jusqu'a icon.stop() (Quitter, ou fin de mise a jour)
+
+    _arreter_serveur()
+    print("watch2notif arrete.")
 
 
 if __name__ == "__main__":
@@ -955,12 +909,7 @@ if __name__ == "__main__":
         if expected_version != update_check.VERSION or not ICON_FILE.is_file():
             raise SystemExit(3)
         raise SystemExit(0)
-    if "--settings" in sys.argv[1:]:
-        import settings
-
-        settings.main()
-    else:
-        try:
-            main()
-        except KeyboardInterrupt:
-            print("\narret demande, bye.")
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\narret demande, bye.")

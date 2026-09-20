@@ -29,29 +29,27 @@ added as a `providers/` module, nothing else to touch.
   Mac, via `platformdirs`, see `data_paths.py`), never next to the
   executable: a reinstall or rebuild must never wipe them. Also the single
   entry point of
-  the built binary: a tray icon (`QSystemTrayIcon`) offers pause polling,
-  opening the settings panel, a notification history window (last 200
-  notifications actually sent, double-click a row to reopen its link,
-  `notification_history.py`), a GitHub help link, and quit; checks the
-  GitHub releases page every 6h and adds a menu entry + one desktop
-  notification when a newer version is out. In a packaged app, the tray
-  asks whether to install it, verifies the published asset's size and
-  SHA-256, then replaces the bundle after shutdown and restarts it while
-  preserving settings and notification history (`update_check.py`,
-  `self_update.py`). A source checkout is never modified automatically.
+  the built binary: a system tray icon (`pystray`) offers pause polling,
+  opening the settings/history page (in the default browser), a GitHub
+  help link, and quit; checks the GitHub releases page every 6h and adds
+  a menu entry + one desktop notification when a newer version is out. In
+  a packaged app, the settings page offers to install it, verifies the
+  published asset's size and SHA-256, then replaces the bundle after
+  shutdown and restarts it while preserving settings and notification
+  history (`update_check.py`, `self_update.py`). A source checkout is
+  never modified automatically.
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`,
   `github_discussion.py`, `youtube_comments.py`), each exposing
   `fetch_entries(source) -> list[Entry]`. Adding a new source type means
   adding a module here, nothing else changes.
-- `settings.py`: settings panel (Qt/PySide6) to add/remove sources, pick
-  their type, set per-source polling interval, and toggle autostart with
-  the system. Bilingual FR/EN, toggle top-right. Native, user-resizable
-  table columns. Runnable standalone (`python settings.py`), via
-  `notifier.py --settings` (its own subprocess, for a shortcut or CLI
-  use), or from the tray's "Settings..." item, which opens it directly
-  in the tray's own process (one Qt app, one event loop for the whole
-  binary — mixing Qt with a separate tray library broke at startup, see
-  the comment at the top of `watch2notif.spec`).
+- `gui/` + `_serve_web.py`: settings/history page (add/remove sources,
+  pick their type, set per-source polling interval, toggle autostart,
+  browse the last 200 notifications actually sent, double-click a row to
+  reopen its link) served on local HTTP (stdlib `http.server`, no
+  framework) and opened in the system's default browser — same
+  architecture as the sibling projects, lidar2map and blink2video.
+  Bilingual FR/EN, toggle top-right. Reachable from the tray's
+  "Settings..."/"History..." items, or with `notifier.py --settings`.
 - `notify_backend.py`: notification backend per OS — `win11toast`
   (Windows, modern WinRT toast, correct app name, clickable), `pync`
   (Mac, via terminal-notifier, clickable), `plyer` (Linux, not clickable
@@ -67,24 +65,22 @@ added as a `providers/` module, nothing else to touch.
 
 ```bash
 pip install -r requirements.txt
-cp config.example.json config.json
-python settings.py   # add sources, check what you want to watch
-python notifier.py   # start watching
+python notifier.py   # first run opens the settings page in your browser
 ```
 
 ### Standalone binary
 
 Each release ships pre-built bundles (Windows/Linux/Mac) on the
 [Releases](../../releases) page, no Python required: a single executable,
-`watch2notif`. Run it to start watching; open the settings panel from its
-tray icon ("Settings...") or with `watch2notif --settings`.
+`watch2notif`. Run it to start watching; open the settings/history page
+from its tray icon ("Settings...") or with `watch2notif --settings`.
 
-When a compatible update is published, the tray asks before downloading
-anything. "Download and install" prepares and validates the whole new
-bundle first; watch2notif closes only when the external updater is ready,
-then restarts on the new version. If preparation, replacement, or restart
-fails, the current installation is kept or restored. Unsupported platforms
-fall back to the release page.
+When a compatible update is published, the settings page shows a banner
+before downloading anything. "Download and install" prepares and
+validates the whole new bundle first; watch2notif closes only when the
+external updater is ready, then restarts on the new version. If
+preparation, replacement, or restart fails, the current installation is
+kept or restored. Unsupported platforms fall back to the release page.
 
 ## Building the bundle yourself
 
@@ -191,8 +187,8 @@ summary)`, as `github_issues.py` does for GitHub's JSON API.
 
 Then register the module in `providers/__init__.py`'s `PROVIDERS` dict
 (key = internal kind, value = the module). Nothing else changes:
-`notifier.py` and `settings.py` pick up any registered provider through
-`PROVIDERS`, with no per-provider branching.
+`notifier.py` and the settings page (`gui/`) pick up any registered
+provider through `PROVIDERS`, with no per-provider branching.
 
 ## Existing alternatives
 
