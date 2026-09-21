@@ -12,6 +12,7 @@ et _construire_tray suffisent a exercer le vrai code sans passer par elles.
 """
 import builtins
 import json
+import socket
 import tempfile
 import threading
 import time
@@ -95,6 +96,21 @@ class BuildFeedsFromRowsTests(unittest.TestCase):
         rows = [{"key": "my_source", "label": "Renamed", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 60}]
         feeds = notifier.build_feeds_from_rows(rows)
         self.assertEqual(feeds[0]["key"], "my_source")
+
+    def test_duplicate_explicit_key_is_reslugified_not_left_colliding(self):
+        # Deux lignes qui partagent la meme clef EXPLICITE (frontend buggue,
+        # ou payload construit a la main) : sans ce garde-fou, les deux
+        # partagent le meme state_file(key) et s'ecrasent mutuellement le
+        # fingerprint a chaque cycle, sans jamais notifier ni pour l'une ni
+        # pour l'autre (trouve en audit).
+        rows = [
+            {"key": "dup", "label": "First", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 60},
+            {"key": "dup", "label": "Second", "url": "https://b.test", "enabled": True, "kind": "rss", "interval_seconds": 60},
+        ]
+        feeds = notifier.build_feeds_from_rows(rows)
+        keys = [f["key"] for f in feeds]
+        self.assertEqual(len(keys), len(set(keys)), "les deux flux ne doivent jamais partager la meme clef")
+        self.assertEqual(keys[0], "dup")
 
     def test_missing_label_falls_back_to_key(self):
         feeds = notifier.build_feeds_from_rows([{"key": "", "label": "", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 60}])
@@ -200,6 +216,19 @@ class HttpApiTests(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, json.loads(r.read())
 
+    def _raw_request(self, request_bytes: bytes) -> bytes:
+        # urllib normalise/rejette ce qu'on veut justement envoyer tel quel
+        # (chemin manifestement invalide pour urlparse, en-tete non
+        # numerique) : socket brut, seul moyen de reproduire une vraie
+        # requete malformee comme un client bugue ou hostile pourrait
+        # l'envoyer.
+        # Un seul recv, pas une boucle jusqu'a fermeture : le serveur est
+        # HTTP/1.1 (keep-alive par defaut), il ne fermera pas la connexion
+        # de lui-meme, une boucle bloquerait jusqu'au timeout a chaque appel.
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as s:
+            s.sendall(request_bytes)
+            return s.recv(4096)
+
     def test_index_and_static_assets_are_served(self):
         status, body = self._get("/")
         self.assertEqual(status, 200)
@@ -265,6 +294,44 @@ class HttpApiTests(unittest.TestCase):
         worker.assert_called_once()
         self.assertEqual(worker.call_args.args[1], "9.9.9")
 
+    def test_malformed_path_returns_400_not_a_crash(self):
+        # urlparse leve ValueError sur certaines formes manifestement
+        # invalides (IPv6 mal ferme, ex. "http://[abc/foo"), le meme piege
+        # deja corrige pour Origin dans hote_autorise() et pour self.path
+        # dans blink2video/serve.py, jamais reporte ici jusqu'a cet audit.
+        # Pas "//[abc" : deja normalise en "/[abc" par le parsing HTTP de la
+        # stdlib avant meme d'atteindre urlparse sur Python 3.9+ (verifie
+        # empiriquement ici), ce cas precis ne se reproduit que sur le
+        # Python 3.8 vise par le build Windows 7 de blink2video/lidar2map,
+        # absents de watch2notif.
+        reponse = self._raw_request(
+            b"GET http://[abc/foo HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        )
+        self.assertIn(b"400", reponse.split(b"\r\n", 1)[0])
+
+    def test_invalid_content_length_returns_400_not_a_crash(self):
+        reponse = self._raw_request(
+            b"POST /api/set-pause HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Length: not-a-number\r\nConnection: close\r\n\r\n"
+        )
+        self.assertIn(b"400", reponse.split(b"\r\n", 1)[0])
+
+    def test_save_config_autostart_failure_still_persists_feeds(self):
+        # save_config() reussit avant le bloc autostart : une cle "error"
+        # generique laissait croire que rien n'avait ete sauvegarde alors
+        # que les flux, eux, l'etaient deja (trouve en audit).
+        with mock.patch.object(notifier.autostart_manager, "enable", side_effect=RuntimeError("boom")):
+            status, result = self._post("/api/save-config", {
+                "lang": "fr",
+                "autostart_enabled": True,
+                "feeds": [{"key": "", "label": "Feed A", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 45}],
+            })
+        self.assertTrue(result["ok"])
+        self.assertIn("autostart_error", result)
+        self.assertEqual(result["feeds"][0]["key"], "feed_a")
+        on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["feeds"][0]["url"], "https://a.test")
+
     def test_history_empty_then_populated_after_a_real_notify_call(self):
         self.assertEqual(json.loads(self._get("/api/history")[1]), {"entries": []})
         with mock.patch.object(notifier.notify_backend, "notify"):
@@ -304,6 +371,22 @@ class TrayMenuTests(unittest.TestCase):
         self.assertEqual(len(labels), 5)
         self.assertTrue(any("pause" in label.lower() for label in labels))
         self.assertTrue(any(label == "Quit" for label in labels))
+
+    def test_stop_event_stops_the_icon_even_without_a_quit_click(self):
+        # _run_update_worker() (declenche par /api/update-install depuis la
+        # page web) n'a pas acces a icon, seul le thread de rafraichissement
+        # ici (qui observe stop_event) peut l'arreter pour lui. Sans cet
+        # appel, icon.run() ne se debloquait jamais apres une mise a jour
+        # installee depuis le web, seul le clic tray "Quitter" appelait
+        # icon.stop() directement (trouve en audit ; verifie ici sans
+        # jamais appeler icon.run() lui-meme).
+        with mock.patch.object(self.icon, "stop") as stop_mock:
+            self.stop_event.set()
+            for _ in range(50):
+                if stop_mock.called:
+                    break
+                time.sleep(0.02)
+        stop_mock.assert_called_once()
 
     def test_menu_shows_install_item_when_update_available(self):
         with mock.patch.object(notifier.self_update, "can_install_automatically", return_value=(True, "")):

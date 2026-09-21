@@ -136,7 +136,15 @@ def build_feeds_from_rows(rows: list) -> list:
         url_value = str(row.get("url") or "").strip()
         if not label and not url_value:
             continue
-        key = str(row.get("key") or "").strip() or slugify(label, existing_keys)
+        # Une clef explicite deja vue (deux lignes qui se la partagent -
+        # frontend buggue, ou payload construit a la main) doit etre
+        # re-slugifiee comme si elle etait absente : la laisser passer
+        # ferait cohabiter deux sources sur le meme state_file(key), chacune
+        # ecrasant le fingerprint de l'autre a chaque cycle, sans jamais
+        # notifier ni pour l'une ni pour l'autre (trouve en audit).
+        key = str(row.get("key") or "").strip()
+        if not key or key in existing_keys:
+            key = slugify(label, existing_keys)
         existing_keys.add(key)
         try:
             interval_seconds = int(row.get("interval_seconds"))
@@ -541,10 +549,6 @@ def poll_loop(state: SharedState) -> None:
     notified_version = None
 
     while True:
-        if state.pause_event.is_set():
-            time.sleep(5)
-            continue
-
         # Try/except large et non specifique : un config.json corrompu par
         # une ecriture concurrente, ou une panne reseau sur le check de
         # version, ne doivent jamais tuer ce thread daemon. Le tray, lui,
@@ -554,22 +558,30 @@ def poll_loop(state: SharedState) -> None:
             config = load_config()
             lang = config.get("lang") or i18n.detect_default_lang()
             default_interval = config.get("poll_interval_seconds", 60)
-            active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
 
-            if not active_feeds:
-                print("aucune source active dans config.json (ouvre les reglages depuis le tray).")
+            # La pause (menu tray) ne concerne que les sources suivies :
+            # elle ne doit pas retarder la veille de sortie d'une nouvelle
+            # version de watch2notif lui-meme, un evenement distinct qu'on
+            # veut voir meme "en vacances" (trouve en audit : le `continue`
+            # precoce sautait aussi le bloc plus bas, jamais rejoue tant que
+            # la pause dure, potentiellement des semaines).
+            if not state.pause_event.is_set():
+                active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
 
-            now = time.time()
-            for feed in active_feeds:
-                key = feed["key"]
-                if now < next_due.get(key, 0):
-                    continue
-                interval = feed.get("interval_seconds") or default_interval
-                try:
-                    poll_feed(feed)
-                except Exception as exc:
-                    print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
-                next_due[key] = now + interval
+                if not active_feeds:
+                    print("aucune source active dans config.json (ouvre les reglages depuis le tray).")
+
+                now = time.time()
+                for feed in active_feeds:
+                    key = feed["key"]
+                    if now < next_due.get(key, 0):
+                        continue
+                    interval = feed.get("interval_seconds") or default_interval
+                    try:
+                        poll_feed(feed)
+                    except Exception as exc:
+                        print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
+                    next_due[key] = now + interval
 
             info = update_check.disponible(data_paths.DATA_DIR)
             state.mark_update_seen(info)
@@ -741,6 +753,19 @@ def _construire_tray(url: str, state: SharedState, stop_event: threading.Event):
                 icon.update_menu()
             except Exception:
                 pass
+        # stop_event peut venir de _quitter() (qui a deja appele icon.stop()
+        # lui-meme, pour une reaction immediate au clic) ou de
+        # _run_update_worker() apres une mise a jour installee, qui n'a pas
+        # acces a icon. Sans cet appel ici, ce second cas ne debloquait
+        # jamais icon.run() : le process restait vivant indefiniment,
+        # empechant le helper externe de remplacer le binaire (trouve en
+        # audit, jamais declenche en usage reel car aucune mise a jour
+        # n'avait encore ete installee depuis la page web plutot que via un
+        # simple redemarrage manuel).
+        try:
+            icon.stop()
+        except Exception:
+            pass
 
     threading.Thread(target=_rafraichir, daemon=True).start()
     return icon
@@ -795,7 +820,13 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
             elif not wants_autostart and currently_enabled:
                 autostart_manager.disable()
         except Exception as exc:
-            return {"error": str(exc), "feeds": feeds}
+            # "ok": True ici, pas "error" seul : save_config() ci-dessus a
+            # deja reussi, seul le bascule autostart a echoue. Une cle
+            # "error" generique laissait croire a l'appelant que rien
+            # n'avait ete sauvegarde (trouve en audit ; app.js faisait un
+            # retour anticipe sur "error" qui sautait la reaffectation des
+            # clefs cote serveur pour toute nouvelle ligne du meme envoi).
+            return {"ok": True, "feeds": feeds, "autostart_error": str(exc)}
 
         return {"ok": True, "feeds": feeds}
 

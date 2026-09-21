@@ -92,7 +92,9 @@ def _enable_windows() -> None:
         f'shell.CurrentDirectory = "{PROJECT_DIR}"\n'
         f'shell.Run "{quoted}", 0, False\n'
     )
-    _windows_startup_file().write_text(vbs_content, encoding="utf-8")
+    fichier = _windows_startup_file()
+    fichier.parent.mkdir(parents=True, exist_ok=True)
+    fichier.write_text(vbs_content, encoding="utf-8")
 
 
 def _disable_windows() -> None:

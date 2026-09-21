@@ -171,7 +171,12 @@ function renderHistory(entries) {
     const tdSource = document.createElement('td');
     tdSource.textContent = entry.feed_label || '';
     const tdTitle = document.createElement('td');
-    if (entry.link) {
+    // entry.link vient tel quel du flux RSS/API de la source (rss.py
+    // renvoie le champ <link> brut) : un flux malveillant ou compromis
+    // pourrait y mettre "javascript:..." plutot qu'une vraie URL. Le
+    // schema est verifie avant d'en faire un lien cliquable dans une page
+    // qui a acces complet a l'API (trouve en audit).
+    if (entry.link && /^https?:\/\//i.test(entry.link)) {
       const a = document.createElement('a');
       a.href = entry.link;
       a.target = '_blank';
@@ -259,18 +264,22 @@ async function saveConfig() {
     feeds: collectFeedsFromTable(),
   };
   const result = await api.saveConfig(payload);
-  if (result.error) {
-    status.textContent = t('autostart_error_msg', { error: result.error });
-    status.classList.add('error');
-    return;
-  }
   // Reaffecte les clefs generees cote serveur (nouvelles lignes) : sans ca,
   // un 2e Sauvegarder sans recharger la page regenererait un nouveau slug a
   // chaque fois pour ces lignes (meme piege que checkbox._feed_key en Qt).
+  // Fait meme si l'autostart a echoue ci-dessous : les sources, elles, sont
+  // deja sauvegardees cote serveur a ce stade (trouve en audit : l'ancien
+  // retour anticipe sur une cle "error" generique sautait cette
+  // reaffectation des qu'un simple bascule autostart echouait).
   const rows = Array.from(document.querySelectorAll('#feeds-body tr'));
   result.feeds.forEach((feed, index) => {
     if (rows[index]) rows[index].dataset.key = feed.key;
   });
+  if (result.autostart_error) {
+    status.textContent = t('autostart_error_msg', { error: result.autostart_error });
+    status.classList.add('error');
+    return;
+  }
   status.textContent = t('ok_msg');
 }
 

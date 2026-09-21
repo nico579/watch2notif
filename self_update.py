@@ -904,7 +904,7 @@ def _prepare_mac_launch_agent(plist: Path) -> None:
 
 
 def launch_prepared_update(prepared: PreparedUpdate) -> None:
-    """Lance le helper, verifie qu'il est pret, puis rend la main a Qt."""
+    """Lance le helper, verifie qu'il est pret, puis rend la main a l'appelant."""
     _validated_transaction_paths(prepared)
     layout = prepared.layout
     ready_file = prepared.staging_root / "helper.ready"
@@ -1048,7 +1048,7 @@ def launch_prepared_update(prepared: PreparedUpdate) -> None:
 
 
 def commit_prepared_update(prepared: PreparedUpdate) -> None:
-    """Autorise le helper deja pret a commencer une fois Qt en train de quitter."""
+    """Autorise le helper deja pret a commencer une fois ce process en train de quitter."""
     _validated_transaction_paths(prepared)
     ready_file = prepared.staging_root / "helper.ready"
     if not ready_file.is_file():

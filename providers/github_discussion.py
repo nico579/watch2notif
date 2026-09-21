@@ -31,6 +31,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       title
       comments(first: 100) {
         nodes {
+          id
           databaseId
           url
           bodyText
@@ -38,6 +39,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
           author { login }
           replies(first: 100) {
             nodes {
+              id
               databaseId
               url
               bodyText
@@ -102,9 +104,13 @@ def fetch_entries(source: str) -> list:
 
 
 def _to_entry(node: dict, discussion_title: str) -> Entry:
+    # databaseId (l'id REST legacy) est documente nullable par l'API GitHub
+    # sur du contenu ancien : repli sur "id" (le node id GraphQL global),
+    # jamais nul, pour ne pas faire cohabiter deux commentaires sous le
+    # meme id "None" et casser la deduplication (trouve en audit).
     body = (node.get("bodyText") or "").strip().replace("\n", " ")
     return Entry(
-        id=str(node["databaseId"]),
+        id=str(node.get("databaseId") if node.get("databaseId") is not None else node["id"]),
         title=discussion_title,
         author=(node.get("author") or {}).get("login", "?"),
         link=node.get("url", ""),

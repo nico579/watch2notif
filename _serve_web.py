@@ -101,7 +101,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self.hote_autorise():
             self.send_error(403)
             return
-        route = urlparse(self.path).path
+        # urlparse leve ValueError sur certaines formes manifestement
+        # invalides (IPv6 mal ferme, ex. « //[abc ») - meme piege deja
+        # corrige pour Origin dans hote_autorise() et pour self.path dans
+        # blink2video/serve.py, jamais reporte ici jusqu'a cet audit.
+        try:
+            route = urlparse(self.path).path
+        except ValueError:
+            self.send_error(400)
+            return
 
         if route == "/":
             self.send_static(self.gui_dir / "index.html", "text/html; charset=utf-8")
@@ -128,7 +136,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self.hote_autorise():
             self.send_error(403)
             return
-        route = urlparse(self.path).path
+        try:
+            route = urlparse(self.path).path
+        except ValueError:
+            self.send_error(400)
+            return
         if not route.startswith(_PREFIXE_API):
             self.send_error(404)
             return
@@ -136,7 +148,11 @@ class Handler(BaseHTTPRequestHandler):
         if gestionnaire is None:
             self.send_error(404)
             return
-        longueur = int(self.headers.get("Content-Length") or 0)
+        try:
+            longueur = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.send_error(400)
+            return
         try:
             payload = json.loads(self.rfile.read(longueur) or b"{}")
         except json.JSONDecodeError:
