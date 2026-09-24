@@ -5,13 +5,14 @@ revalidees par self_update.py au moment ou l'utilisateur accepte
 l'installation ; aucune URL arbitraire du cache n'est executee telle quelle.
 """
 import json
-import os
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.2.1"
+import json_store
+
+VERSION = "0.2.2"
 DEPOT = "nico579/watch2notif"
 # Prefixe par un point : state/ contient aussi un fichier par source
 # (nomme d'apres sa cle, cf notifier.state_file), et slugify() ne peut
@@ -36,9 +37,9 @@ def _numeros(version: str) -> tuple:
 
 
 def _write_json_atomic(path: Path, data) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(tmp, path)
+    # Temporaire unique et verrou par fichier, comme les autres JSON de
+    # donnees (cf. json_store) : plus de .tmp au nom fixe.
+    json_store.write_json_atomic(path, data)
 
 
 def _interroger() -> dict:

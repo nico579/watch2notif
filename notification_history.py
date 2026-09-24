@@ -2,12 +2,11 @@
 history window. Distinct from providers/state/ (which only keeps seen IDs
 and a watermark to dedupe future polls, never the content): this is a
 bounded, human-readable log meant to be read back and displayed."""
-import json
-import os
 import threading
 import time
 
 import data_paths
+import json_store
 
 HISTORY_FILE = data_paths.DATA_DIR / "notification_history.json"
 MAX_ENTRIES = 200
@@ -22,34 +21,44 @@ _lock = threading.Lock()
 
 
 def load() -> list:
-    if not HISTORY_FILE.exists():
-        return []
+    """Historique pour l'affichage : liste vide si absent, corrompu ou
+    illisible. Rien n'est reecrit a partir d'ici (cf. append)."""
     try:
-        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = json_store.read_json(HISTORY_FILE, [])
+    except OSError:
         return []
     return data if isinstance(data, list) else []
 
 
 def _save(entries: list) -> None:
-    tmp = HISTORY_FILE.with_suffix(HISTORY_FILE.suffix + ".tmp")
-    tmp.write_text(json.dumps(entries, indent=2), encoding="utf-8")
-    os.replace(tmp, HISTORY_FILE)
+    json_store.write_json_atomic(HISTORY_FILE, entries, indent=2)
 
 
 def append(feed_label: str, title: str, author: str, summary: str, link: str) -> None:
+    """Ajoute une entree ; ne leve jamais : appele par notify() APRES le
+    toast, une exception ici remonterait dans le poll alors que la
+    notification est deja partie."""
     with _lock:
-        entries = load()
-        entries.insert(0, {
-            "feed_label": feed_label,
-            "title": title,
-            "author": author,
-            "summary": summary,
-            "link": link,
-            "timestamp": time.time(),
-        })
-        del entries[MAX_ENTRIES:]
-        _save(entries)
+        try:
+            # read_json, pas load() : un historique present mais illisible
+            # (refus Windows qui persiste) leve au lieu de rendre [], sinon
+            # la reecriture ci-dessous l'effacait en ne gardant que cette
+            # entree (constate le 2026-09-24).
+            entries = json_store.read_json(HISTORY_FILE, [])
+            if not isinstance(entries, list):
+                entries = []
+            entries.insert(0, {
+                "feed_label": feed_label,
+                "title": title,
+                "author": author,
+                "summary": summary,
+                "link": link,
+                "timestamp": time.time(),
+            })
+            del entries[MAX_ENTRIES:]
+            _save(entries)
+        except OSError as exc:
+            print(f"historique non mis a jour ({exc}), entree ignoree")
 
 
 def clear() -> None:

@@ -31,6 +31,7 @@ import _serve_web
 import autostart_manager
 import data_paths
 import i18n
+import json_store
 import notification_history
 import notify_backend
 import self_update
@@ -102,15 +103,24 @@ def default_config() -> dict:
 
 
 def load_config() -> dict:
-    if not CONFIG_FILE.exists():
-        return default_config()
-    return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    # tolerate_corrupt=False : un config.json corrompu leve, comme avant, au
+    # lieu d'etre remplace en silence par la config par defaut au prochain
+    # enregistrement (il se repare encore a la main).
+    config = json_store.read_json(CONFIG_FILE, None, tolerate_corrupt=False)
+    return default_config() if config is None else config
 
 
 def save_config(config: dict) -> None:
-    tmp = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
-    tmp.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    os.replace(tmp, CONFIG_FILE)
+    # Temporaire unique et verrou par fichier (json_store) : l'ancien
+    # config.json.tmp au nom fixe faisait echouer deux enregistrements
+    # simultanes (double clic sur Enregistrer, deux onglets).
+    json_store.write_json_atomic(CONFIG_FILE, config, indent=2)
+
+
+# Lecture-modification-ecriture de la config par la route save-config : deux
+# requetes simultanees relisaient la meme config et la seconde ecrasait la
+# premiere.
+_config_lock = threading.Lock()
 
 
 def slugify(label: str, existing_keys: set) -> str:
@@ -188,10 +198,11 @@ def _valid_timestamp(value, *, reject_far_future: bool = True) -> float | None:
 
 
 def load_feed_state(feed_key: str) -> FeedState:
-    path = state_file(feed_key)
-    if not path.exists():
+    # Illisible ou corrompu : leve, comme avant. Un etat vide rendu a tort
+    # ferait paraitre toutes les entrees nouvelles, donc tout re-notifier.
+    raw = json_store.read_json(state_file(feed_key), None, tolerate_corrupt=False)
+    if raw is None:
         return FeedState()
-    raw = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw, list):
         # Migration transparente des versions <= 0.1.1.
         return FeedState(seen_ids={str(value) for value in raw if value}, legacy=True)
@@ -247,10 +258,9 @@ def save_seen_ids(feed_key: str, seen_ids: set[str]) -> None:
 def _write_json_atomic(path: Path, data) -> None:
     """Ecrit dans un fichier temporaire puis renomme : un lecteur concurrent
     (poll_loop tournant pendant une sauvegarde de reglages, par exemple) ne
-    peut jamais voir un fichier tronque/partiellement ecrit."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(tmp, path)
+    peut jamais voir un fichier tronque/partiellement ecrit. Temporaire
+    unique et verrou par fichier : cf. json_store."""
+    json_store.write_json_atomic(path, data)
 
 
 def fetch_entries(feed: dict):
@@ -807,10 +817,11 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
 
     def _api_save_config(payload: dict) -> dict:
         feeds = build_feeds_from_rows(payload.get("feeds") or [])
-        config = load_config()
-        config["feeds"] = feeds
-        config["lang"] = payload.get("lang") or config.get("lang") or i18n.detect_default_lang()
-        save_config(config)
+        with _config_lock:
+            config = load_config()
+            config["feeds"] = feeds
+            config["lang"] = payload.get("lang") or config.get("lang") or i18n.detect_default_lang()
+            save_config(config)
 
         try:
             wants_autostart = bool(payload.get("autostart_enabled"))
