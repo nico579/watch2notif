@@ -133,12 +133,18 @@ def slugify(label: str, existing_keys: set) -> str:
     return candidate
 
 
-def build_feeds_from_rows(rows: list) -> list:
+def build_feeds_from_rows(rows: list, known_kinds: dict | None = None) -> list:
     """Meme semantique que l'ancien SettingsWindow.on_save() (Qt) : une
     ligne sans label ni url est ignoree, la clef existante d'une ligne
     (reenvoyee par le client apres un premier save) est reutilisee plutot
     que reglissifiee - sinon une source deja active perdrait son historique
-    de dedup (state/<key>.json) a chaque sauvegarde suivante."""
+    de dedup (state/<key>.json) a chaque sauvegarde suivante.
+
+    known_kinds (clef -> type, tire de la config actuelle) : un type vide
+    ou inconnu ne remplace jamais celui, connu, d'une source existante. De
+    la 0.2.0 a la 0.2.4, la page renvoyait un type vide pour chaque source,
+    et chacune serait passee en RSS au premier enregistrement."""
+    known_kinds = known_kinds or {}
     existing_keys: set = set()
     feeds = []
     for row in rows:
@@ -156,17 +162,19 @@ def build_feeds_from_rows(rows: list) -> list:
         if not key or key in existing_keys:
             key = slugify(label, existing_keys)
         existing_keys.add(key)
+        kind = row.get("kind")
+        if kind not in PROVIDERS:
+            kind = known_kinds.get(key) if known_kinds.get(key) in PROVIDERS else DEFAULT_KIND
         try:
             interval_seconds = int(row.get("interval_seconds"))
         except (TypeError, ValueError):
-            fallback_provider = PROVIDERS.get(row.get("kind")) or PROVIDERS[DEFAULT_KIND]
-            interval_seconds = getattr(fallback_provider, "DEFAULT_INTERVAL_SECONDS", 60)
+            interval_seconds = getattr(PROVIDERS[kind], "DEFAULT_INTERVAL_SECONDS", 60)
         feeds.append({
             "key": key,
             "label": label or key,
             "url": url_value,
             "enabled": bool(row.get("enabled")),
-            "kind": row.get("kind") if row.get("kind") in PROVIDERS else DEFAULT_KIND,
+            "kind": kind,
             "interval_seconds": interval_seconds,
         })
     return feeds
@@ -816,9 +824,11 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         return {"entries": notification_history.load()}
 
     def _api_save_config(payload: dict) -> dict:
-        feeds = build_feeds_from_rows(payload.get("feeds") or [])
         with _config_lock:
             config = load_config()
+            known_kinds = {feed.get("key"): feed.get("kind")
+                           for feed in config.get("feeds") or [] if isinstance(feed, dict)}
+            feeds = build_feeds_from_rows(payload.get("feeds") or [], known_kinds)
             config["feeds"] = feeds
             config["lang"] = payload.get("lang") or config.get("lang") or i18n.detect_default_lang()
             save_config(config)

@@ -59,16 +59,20 @@ let feedKeySeq = 0;
 
 // --- table des sources ----------------------------------------------------
 
+function fillKindOptions(select) {
+  select.innerHTML = '';
+  for (const [kind, info] of Object.entries(providers)) {
+    const opt = document.createElement('option');
+    opt.value = kind;
+    opt.textContent = info.label;
+    select.appendChild(opt);
+  }
+}
+
 function renderFeedKindOptions() {
   document.querySelectorAll('select.feed-kind').forEach((select) => {
     const current = select.value;
-    select.innerHTML = '';
-    for (const [kind, info] of Object.entries(providers)) {
-      const opt = document.createElement('option');
-      opt.value = kind;
-      opt.textContent = info.label;
-      select.appendChild(opt);
-    }
+    fillKindOptions(select);
     select.value = current;
   });
 }
@@ -93,6 +97,10 @@ function createFeedRow(feed) {
   const tdKind = document.createElement('td');
   const kindSelect = document.createElement('select');
   kindSelect.className = 'feed-kind';
+  // Les options d'abord : sur une liste encore vide, le navigateur ignore la
+  // valeur qu'on lui donne (plus bas), et chaque source s'affichait sans
+  // type, puis partait en RSS au premier « Enregistrer ».
+  fillKindOptions(kindSelect);
   tdKind.appendChild(kindSelect);
 
   const tdName = document.createElement('td');

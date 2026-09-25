@@ -263,6 +263,33 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(on_disk["lang"], "fr")
         self.assertEqual(on_disk["feeds"][0]["url"], "https://a.test")
 
+    def test_type_vide_ne_remplace_pas_le_type_connu(self):
+        # 0.2.0 a 0.2.4 : la page renvoyait un type vide pour chaque source ;
+        # chacune passait en RSS au premier enregistrement.
+        self._post("/api/save-config", {"lang": "fr", "feeds": [
+            {"key": "", "label": "Mes issues", "url": "nico579/watch2notif",
+             "enabled": True, "kind": "github_issues", "interval_seconds": 300}]})
+        status, result = self._post("/api/save-config", {"lang": "fr", "feeds": [
+            {"key": "mes_issues", "label": "Mes issues", "url": "nico579/watch2notif",
+             "enabled": True, "kind": "", "interval_seconds": 300},
+            {"key": "", "label": "Nouvelle", "url": "https://b.test",
+             "enabled": True, "kind": "", "interval_seconds": None}]})
+        self.assertTrue(result["ok"])
+        on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
+        types = {feed["key"]: feed["kind"] for feed in on_disk["feeds"]}
+        self.assertEqual(types["mes_issues"], "github_issues")
+        # Une source nouvelle sans type prend toujours celui par defaut.
+        self.assertEqual(types["nouvelle"], notifier.DEFAULT_KIND)
+
+    def test_page_remplit_les_types_avant_de_les_choisir(self):
+        # Garde sur l'ordre, faute de navigateur dans ces tests : une valeur
+        # donnee a une liste encore vide est ignoree par le navigateur.
+        source = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
+        creation = source[source.index("function createFeedRow"):]
+        creation = creation[:creation.index("\n}\n")]
+        self.assertLess(creation.index("fillKindOptions(kindSelect)"),
+                        creation.index("kindSelect.value = feed.kind"))
+
     def test_set_pause_toggles_the_real_event(self):
         self._post("/api/set-pause", {"paused": True})
         self.assertTrue(self.pause_event.is_set())

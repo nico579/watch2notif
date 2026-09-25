@@ -12,7 +12,7 @@ from pathlib import Path
 
 import json_store
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 DEPOT = "nico579/watch2notif"
 # Prefixe par un point : state/ contient aussi un fichier par source
 # (nomme d'apres sa cle, cf notifier.state_file), et slugify() ne peut
