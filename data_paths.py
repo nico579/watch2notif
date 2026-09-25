@@ -18,6 +18,7 @@ et l'historique de dedup avec le reste du dossier reconstruit.
 migrer_donnees_existantes() deplace une bonne fois les fichiers d'une
 installation anterieure a ce module vers DATA_DIR.
 """
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -25,7 +26,10 @@ from pathlib import Path
 from platformdirs import user_data_dir
 
 INSTALL_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-DATA_DIR = Path(user_data_dir("watch2notif", appauthor=False))
+# Même règle que blink2video et lidar2map : la variable <APP>_HOME l'emporte
+# (tests, installation particulière), sinon le dossier standard de l'OS.
+DATA_DIR = Path(os.environ.get("WATCH2NOTIF_HOME")
+                or user_data_dir("watch2notif", appauthor=False)).expanduser().resolve()
 # Cree tout de suite, a l'import : notifier.py ouvre son fichier de log
 # dans DATA_DIR avant meme d'appeler migrer_donnees_existantes() (le tout
 # premier print() possible, avant que main() ne tourne).

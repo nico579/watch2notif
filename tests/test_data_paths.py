@@ -1,9 +1,36 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import data_paths
+
+RACINE = Path(__file__).resolve().parent.parent
+
+
+def _data_dir_au_chargement(env: dict) -> Path:
+    """DATA_DIR tel que le calcule un processus neuf (la valeur est figée à
+    l'import, le module déjà chargé ici ne la recalculerait pas)."""
+    sortie = subprocess.run(
+        [sys.executable, "-c", "import data_paths; print(data_paths.DATA_DIR)"],
+        cwd=RACINE, env=env, capture_output=True, text=True, check=True)
+    return Path(sortie.stdout.strip())
+
+
+class DossierDonneesTests(unittest.TestCase):
+    def test_watch2notif_home_l_emporte(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, WATCH2NOTIF_HOME=tmp)
+            self.assertEqual(_data_dir_au_chargement(env), Path(tmp).resolve())
+
+    def test_sans_variable_dossier_standard_de_l_os(self):
+        from platformdirs import user_data_dir
+        env = {k: v for k, v in os.environ.items() if k != "WATCH2NOTIF_HOME"}
+        self.assertEqual(_data_dir_au_chargement(env),
+                         Path(user_data_dir("watch2notif", appauthor=False)).resolve())
 
 
 class MigrationTests(unittest.TestCase):
