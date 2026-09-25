@@ -37,9 +37,19 @@ def _notifier_command() -> list:
     return [sys.executable, str(NOTIFIER_PATH)]
 
 
+def _windows_startup_dir() -> Path:
+    return Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+
+
 def _windows_startup_file() -> Path:
-    appdata = os.environ["APPDATA"]
-    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "watch2notif.vbs"
+    """Raccourci du dossier Demarrage, meme mecanisme que blink2video et
+    lidar2map."""
+    return _windows_startup_dir() / "watch2notif.lnk"
+
+
+def _windows_legacy_file() -> Path:
+    """Script .vbs des versions <= 0.2.3, remplace par le raccourci."""
+    return _windows_startup_dir() / "watch2notif.vbs"
 
 
 def _linux_service_file() -> Path:
@@ -53,7 +63,7 @@ def _mac_plist_file() -> Path:
 def is_enabled() -> bool:
     system = platform.system()
     if system == "Windows":
-        return _windows_startup_file().exists()
+        return _windows_startup_file().exists() or _windows_legacy_file().exists()
     if system == "Linux":
         return _linux_service_file().exists()
     if system == "Darwin":
@@ -85,22 +95,63 @@ def disable() -> None:
         raise RuntimeError(f"OS non supporte pour l'autostart: {system}")
 
 
+def migrer_ancien_demarrage() -> bool:
+    """Remplace le .vbs d'une version <= 0.2.3 par le raccourci, sans
+    toucher au choix de l'utilisateur : rien si le demarrage automatique
+    n'etait pas actif. Vrai si un remplacement a eu lieu."""
+    if platform.system() != "Windows" or not _windows_legacy_file().exists():
+        return False
+    _enable_windows()
+    return True
+
+
+def _chaine_ps(valeur: str) -> str:
+    """Chaine litterale PowerShell : seule l'apostrophe se double."""
+    return "'" + valeur.replace("'", "''") + "'"
+
+
 def _enable_windows() -> None:
-    quoted = " ".join(f'""{part}""' for part in _notifier_command())
-    vbs_content = (
-        'Set shell = CreateObject("WScript.Shell")\n'
-        f'shell.CurrentDirectory = "{PROJECT_DIR}"\n'
-        f'shell.Run "{quoted}", 0, False\n'
+    """Raccourci .lnk dans le dossier Demarrage, cree par l'interface COM de
+    l'explorateur via PowerShell, present sur tout Windows. Aucune fenetre
+    ne s'ouvre : l'executable est construit sans console (console=False),
+    comme pythonw.exe depuis les sources.
+
+    Remplace le script .vbs des versions <= 0.2.3 : VBScript est en cours de
+    retrait de Windows, et wscript lisait ce script, ecrit en UTF-8 sans BOM,
+    dans la page de code ANSI (un chemin accentue ne menait nulle part)."""
+    commande = _notifier_command()
+    cible = _windows_startup_file()
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    script = (
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({cible});"
+        "$s.TargetPath = {executable}; $s.Arguments = {arguments};"
+        "$s.WorkingDirectory = {dossier}; $s.WindowStyle = 7;"
+        "$s.Description = 'watch2notif'; $s.Save()"
+    ).format(
+        cible=_chaine_ps(str(cible)),
+        executable=_chaine_ps(commande[0]),
+        arguments=_chaine_ps(subprocess.list2cmdline(commande[1:])),
+        dossier=_chaine_ps(str(PROJECT_DIR)),
     )
-    fichier = _windows_startup_file()
-    fichier.parent.mkdir(parents=True, exist_ok=True)
-    fichier.write_text(vbs_content, encoding="utf-8")
+    resultat = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        text=True, errors="replace", check=False,
+        # CREATE_NO_WINDOW seul : avec DETACHED_PROCESS, il serait ignore
+        # (voir self_update.py, corrige en 0.1.9).
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if resultat.returncode != 0 or not cible.exists():
+        raise RuntimeError("raccourci de demarrage non cree : "
+                           + ((resultat.stderr or "").strip() or str(cible)))
+    # Deux entrees lanceraient deux fois watch2notif a l'ouverture de session.
+    _windows_legacy_file().unlink(missing_ok=True)
 
 
 def _disable_windows() -> None:
-    path = _windows_startup_file()
-    if path.exists():
-        path.unlink()
+    # Le .vbs d'une version <= 0.2.3 aussi : sinon il relancerait watch2notif.
+    for path in (_windows_startup_file(), _windows_legacy_file()):
+        path.unlink(missing_ok=True)
 
 
 def _enable_linux() -> None:

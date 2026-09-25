@@ -886,6 +886,14 @@ def main() -> None:
             print("une instance de watch2notif tourne deja, arret.")
         return
 
+    # Demarrage automatique d'une version <= 0.2.3 (script .vbs) : meme
+    # choix, nouveau mecanisme (raccourci .lnk). Jamais bloquant.
+    try:
+        if autostart_manager.migrer_ancien_demarrage():
+            print("demarrage automatique : script .vbs remplace par un raccourci.")
+    except Exception as exc:
+        print(f"demarrage automatique : migration impossible ({exc}).")
+
     first_run = not CONFIG_FILE.exists()
     if first_run:
         save_config(default_config())
