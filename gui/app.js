@@ -48,6 +48,16 @@ function applyLanguage() {
   });
   renderFeedKindOptions();
   renderUpdateBanner(lastUpdateState);
+  renderServerInfo();
+}
+
+// Version et PID du serveur en tete de page, comme blink2video : on voit
+// d'un coup d'oeil quelle version repond, et quel processus l'heberge.
+let serverInfo = { version: '', pid: '' };
+
+function renderServerInfo() {
+  document.getElementById('server-version').textContent = serverInfo.version;
+  document.getElementById('server-pid').textContent = t('header_pid', { pid: serverInfo.pid });
 }
 
 // --- etat courant (charge une fois, modifie localement, sauvegarde explicite) ---
@@ -378,6 +388,7 @@ document.getElementById('history-clear-btn').addEventListener('click', async () 
   lang = state.config.lang || 'en';
   providers = state.providers;
   defaultKind = state.default_kind;
+  serverInfo = { version: state.version, pid: state.pid };
 
   document.getElementById('autostart-check').checked = state.autostart_enabled;
   document.getElementById('pause-check').checked = state.paused;

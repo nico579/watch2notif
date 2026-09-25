@@ -11,6 +11,7 @@ body{padding:16px 24px 40px;max-width:1000px;margin:0 auto}
 
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .topbar h1{font-size:18px;font-weight:600}
+.topbar h1 .v{font-size:11px;font-weight:400;color:var(--dim);vertical-align:super;margin-left:3px}
 .lang-toggle{display:flex;gap:4px}
 .lang-toggle button{width:36px;padding:4px 0;background:var(--bg2);color:var(--dim);
   border:1px solid var(--bd);border-radius:4px;cursor:pointer;font-size:12px}

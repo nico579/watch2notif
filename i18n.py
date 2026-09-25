@@ -9,6 +9,7 @@ import locale
 
 STRINGS = {
     "window_title": {"en": "watch2notif - settings", "fr": "watch2notif - reglages"},
+    "header_pid": {"en": "Server PID {pid}", "fr": "PID serveur {pid}"},
     "tab_settings": {"en": "Settings", "fr": "Reglages"},
     "tab_history": {"en": "History", "fr": "Historique"},
     "autostart_label": {"en": "Start automatically with the system", "fr": "Demarrer automatiquement avec le systeme"},

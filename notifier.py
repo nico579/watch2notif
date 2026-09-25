@@ -802,6 +802,9 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         automatic, reason = self_update.can_install_automatically()
         return {
             "version": update_check.VERSION,
+            # Affiches en tete de page, comme blink2video : quelle version
+            # repond, et quel processus arreter si besoin.
+            "pid": os.getpid(),
             "config": load_config(),
             "providers": {
                 kind: {

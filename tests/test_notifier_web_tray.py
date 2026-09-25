@@ -12,6 +12,7 @@ et _construire_tray suffisent a exercer le vrai code sans passer par elles.
 """
 import builtins
 import json
+import os
 import socket
 import tempfile
 import threading
@@ -262,6 +263,16 @@ class HttpApiTests(unittest.TestCase):
         on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
         self.assertEqual(on_disk["lang"], "fr")
         self.assertEqual(on_disk["feeds"][0]["url"], "https://a.test")
+
+    def test_etat_annonce_version_et_pid_pour_l_en_tete(self):
+        # Affiches en tete de page, comme blink2video.
+        data = json.loads(self._get("/api/state")[1])
+        self.assertEqual(data["version"], notifier.update_check.VERSION)
+        self.assertEqual(data["pid"], os.getpid())
+        page = self._get("/")[1].decode("utf-8")
+        self.assertIn('id="server-version"', page)
+        self.assertIn('id="server-pid"', page)
+        self.assertEqual(notifier.i18n.STRINGS["header_pid"]["fr"], "PID serveur {pid}")
 
     def test_type_vide_ne_remplace_pas_le_type_connu(self):
         # 0.2.0 a 0.2.4 : la page renvoyait un type vide pour chaque source ;
