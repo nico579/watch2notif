@@ -12,6 +12,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Droits minimaux du GITHUB_TOKEN : lecture seule. Un job qui publie
+# déclare lui-même le droit d'écriture dont il a besoin.
+permissions:
+  contents: read
+
 jobs:
   syntaxe:
     name: syntaxe et imports ${{ matrix.os }}
@@ -22,9 +27,9 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -55,8 +60,8 @@ jobs:
           - os: macos-latest
             notifier: dist/watch2notif.app/Contents/MacOS/watch2notif
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
