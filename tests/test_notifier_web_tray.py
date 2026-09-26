@@ -242,6 +242,16 @@ class HttpApiTests(unittest.TestCase):
             self._get("/api/does-not-exist")
         self.assertEqual(ctx.exception.code, 404)
 
+    def test_refused_post_with_body_never_loses_its_response(self):
+        # Repondre avant d'avoir lu le corps fermait la connexion sur des
+        # octets non lus : RST sous Windows, reponse perdue (WinError 10053)
+        # pour environ 4 % des requetes, mesure le 2026-09-26. Cinquante
+        # envois avec un corps consequent rendent la course presque certaine.
+        for _ in range(50):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._post("/api/does-not-exist", {"donnees": "x" * 20000})
+            self.assertEqual(ctx.exception.code, 404)
+
     def test_state_reflects_isolated_empty_config(self):
         status, body = self._get("/api/state")
         data = json.loads(body)

@@ -132,21 +132,39 @@ class Handler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- POST
 
+    # Au-dela, le corps d'une requete refusee n'est pas lu : la connexion est
+    # fermee sans lui, un envoi abusif ne doit pas occuper le serveur.
+    _CORPS_REFUSE_MAX = 1 << 20
+
+    def _refuser(self, code: int) -> None:
+        """Repond une erreur a un POST apres avoir lu son corps. Fermee avec
+        des octets non lus, la connexion part en RST sous Windows et le client
+        perd la reponse (WinError 10053) : 12 reponses 404 perdues sur 300 POST
+        avec corps vers une route inconnue, mesure le 2026-09-26. Meme
+        correctif que _serve_web.py de lidar2map."""
+        try:
+            longueur = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            longueur = 0
+        if 0 < longueur <= self._CORPS_REFUSE_MAX:
+            self.rfile.read(longueur)
+        self.send_error(code)
+
     def do_POST(self) -> None:
         if not self.hote_autorise():
-            self.send_error(403)
+            self._refuser(403)
             return
         try:
             route = urlparse(self.path).path
         except ValueError:
-            self.send_error(400)
+            self._refuser(400)
             return
         if not route.startswith(_PREFIXE_API):
-            self.send_error(404)
+            self._refuser(404)
             return
         gestionnaire = self.post_routes.get(route[len(_PREFIXE_API):])
         if gestionnaire is None:
-            self.send_error(404)
+            self._refuser(404)
             return
         try:
             longueur = int(self.headers.get("Content-Length") or 0)
