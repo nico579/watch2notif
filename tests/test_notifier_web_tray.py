@@ -191,7 +191,7 @@ class HttpApiTests(unittest.TestCase):
         api_routes, post_routes = notifier.build_api_routes(self.pause_event, self.state, self.stop_event)
         self.server = notifier._serve_web.demarrer(
             bind="127.0.0.1", port=0, trusted_host="", gui_dir=notifier.GUI_DIR,
-            api_routes=api_routes, post_routes=post_routes,
+            api_routes=api_routes, post_routes=post_routes, favicon=notifier.ICON_FILE,
         )
         self.port = self.server.server_address[1]
 
@@ -236,6 +236,27 @@ class HttpApiTests(unittest.TestCase):
         self.assertIn(b"watch2notif", body)
         self.assertEqual(self._get("/app.js")[0], 200)
         self.assertEqual(self._get("/style.css")[0], 200)
+
+    def test_favicon_is_the_tray_icon(self):
+        # Comme blink2video : /favicon.ico, garde une semaine par le navigateur.
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/favicon.ico", timeout=5) as r:
+            self.assertEqual(r.headers["Content-Type"], "image/x-icon")
+            self.assertEqual(r.headers["Cache-Control"], "public, max-age=604800")
+            self.assertEqual(r.read(), notifier.ICON_FILE.read_bytes())
+
+    def test_icons_are_filed_like_the_other_apps(self):
+        # Rangees comme celles de blink2video, lidar2map et gpxsolar :
+        # assets/<app>.png de 1254 px pour l'executable, assets/<app>.ico
+        # aux neuf tailles de celui de blink2video pour le reste.
+        page = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<link rel="icon" href="/favicon.ico">', page)
+        png = (notifier.RESOURCE_DIR / "assets" / "watch2notif.png").read_bytes()
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(png[16:24], (1254).to_bytes(4, "big") * 2)
+        ico = notifier.ICON_FILE.read_bytes()
+        self.assertEqual(notifier.ICON_FILE.name, "watch2notif.ico")
+        self.assertEqual(ico[:4], b"\x00\x00\x01\x00")
+        self.assertEqual(int.from_bytes(ico[4:6], "little"), 9)
 
     def test_unknown_route_is_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:

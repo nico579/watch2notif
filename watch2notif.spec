@@ -104,10 +104,11 @@ analysis = Analysis(
     ["notifier.py"],
     pathex=["."],
     hiddenimports=NOTIFY_HIDDEN,
-    # Icone chargee a l'execution par pystray (RESOURCE_DIR/ICON_FILE, voir
-    # notifier.py) ; gui/ est la page de reglages/historique (voir GUI_DATAS
-    # ci-dessus).
-    datas=[(str(APP_ICON), "assets")] + GUI_DATAS + PYNC_DATAS,
+    # Icone chargee a l'execution par pystray et servie en /favicon.ico
+    # (RESOURCE_DIR/ICON_FILE, voir notifier.py) : le .ico tire de APP_ICON,
+    # rangee comme celles de blink2video, lidar2map et gpxsolar ; gui/ est la
+    # page de reglages/historique (voir GUI_DATAS ci-dessus).
+    datas=[(str(APP_ICON.with_suffix(".ico")), "assets")] + GUI_DATAS + PYNC_DATAS,
     # tkinter : jamais importe par ce projet (page web, pas de GUI native) ;
     # l'exclure evite d'embarquer Tcl/Tk pour rien si un hook tiers le
     # detectait par erreur.

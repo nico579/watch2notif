@@ -34,6 +34,7 @@ class Handler(BaseHTTPRequestHandler):
     # process, single_instance.py empeche tout doublon) avant de demarrer.
     trusted_host: str = ""
     gui_dir: Path | None = None
+    favicon: Path | None = None
     api_routes: dict = {}
     post_routes: dict = {}
 
@@ -83,7 +84,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corps)
 
-    def send_static(self, path: Path, content_type: str) -> None:
+    def send_static(self, path: Path | None, content_type: str,
+                    cache: str | None = None) -> None:
+        if path is None:
+            self.send_error(404)
+            return
         try:
             corps = path.read_bytes()
         except OSError:
@@ -91,6 +96,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        if cache:
+            self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(corps)))
         self.end_headers()
         self.wfile.write(corps)
@@ -119,6 +126,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if route == "/style.css":
             self.send_static(self.gui_dir / "style.css", "text/css; charset=utf-8")
+            return
+        if route == "/favicon.ico":
+            # Icone de l'onglet, celle de la zone de notification
+            # (assets/watch2notif.ico), servie comme par blink2video :
+            # statique, le navigateur peut la garder une semaine.
+            self.send_static(self.favicon, "image/x-icon",
+                             cache="public, max-age=604800")
             return
 
         if not route.startswith(_PREFIXE_API):
@@ -186,12 +200,14 @@ class Server(ThreadingHTTPServer):
 
 
 def demarrer(*, bind: str, port: int, trusted_host: str, gui_dir: Path,
-             api_routes: dict, post_routes: dict | None = None) -> Server:
+             api_routes: dict, post_routes: dict | None = None,
+             favicon: Path | None = None) -> Server:
     """Cree et demarre le serveur (thread daemon, s'eteint avec le process).
     Retourne l'instance pour permettre server.shutdown()/server_close() par
     l'appelant. Leve OSError si le port est deja occupe."""
     Handler.trusted_host = trusted_host
     Handler.gui_dir = gui_dir
+    Handler.favicon = favicon
     Handler.api_routes = api_routes
     Handler.post_routes = post_routes or {}
     server = Server((bind, port), Handler)

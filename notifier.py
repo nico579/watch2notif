@@ -60,7 +60,10 @@ BIND = "127.0.0.1"
 # datas=) vivent dans sys._MEIPASS une fois fige (le dossier _internal/ en
 # mode dossier), pas a cote de l'executable ni dans le dossier de donnees.
 RESOURCE_DIR = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.png"
+# Icones rangees comme celles de blink2video, lidar2map et gpxsolar :
+# assets/watch2notif.png pour l'executable (watch2notif.spec, icon=),
+# assets/watch2notif.ico pour la zone de notification et l'onglet.
+ICON_FILE = RESOURCE_DIR / "assets" / "watch2notif.ico"
 GUI_DIR = RESOURCE_DIR / "gui"
 
 
@@ -919,7 +922,7 @@ def main() -> None:
     try:
         server = _serve_web.demarrer(
             bind=BIND, port=PORT, trusted_host="", gui_dir=GUI_DIR,
-            api_routes=api_routes, post_routes=post_routes,
+            api_routes=api_routes, post_routes=post_routes, favicon=ICON_FILE,
         )
     except OSError as exc:
         print(f"impossible d'ecouter sur {BIND}:{PORT}: {exc}")
