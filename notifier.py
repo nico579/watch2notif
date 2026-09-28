@@ -2,13 +2,16 @@
 see providers/) and fire a desktop notification for anything new.
 Cross-platform (Windows/Linux/Mac). Runs the polling in a background
 thread, serves the settings/history GUI on local HTTP (browser), and
-shows a pystray system tray icon (pause/settings/quit) on the main thread.
+shows a system tray icon on the main thread.
 
-Meme architecture que lidar2map (_serve_web.py + gui/ + pystray) : un seul
-toolkit de zone de notification pour tous les projets, plus de Qt/PySide6
-dans watch2notif. --settings (bas de ce fichier) ouvre le navigateur sur
-l'instance en cours (ou en demarre une si aucune ne tourne) ; --no-tray
-sert aux tests et aux environnements sans zone de notification.
+Meme architecture que lidar2map (_serve_web.py + gui/ + pystray), plus de
+Qt/PySide6 dans watch2notif. L'icone et son menu viennent de
+nico579_commons.tray, le meme menu dans les quatre applications (Ouvrir,
+Mettre a jour, Redemarrer, Arreter, Creer un raccourci) ; pause,
+historique et aide sont dans la page. --settings (bas de ce fichier)
+ouvre le navigateur sur l'instance en cours (ou en demarre une si aucune
+ne tourne) ; --no-tray sert aux tests et aux environnements sans zone de
+notification.
 """
 import calendar
 from dataclasses import dataclass, field
@@ -18,14 +21,15 @@ import hashlib
 import json
 import math
 import os
-import platform
 import re
-import subprocess
 import sys
 import threading
 import time
 import webbrowser
 from pathlib import Path
+
+from nico579_commons import environnement, raccourci, relance
+from nico579_commons import tray as apptray
 
 import _serve_web
 import autostart_manager
@@ -620,20 +624,6 @@ def poll_loop(state: SharedState) -> None:
         time.sleep(5)
 
 
-def open_url(url: str) -> None:
-    if not url:
-        return
-    if platform.system() == "Windows":
-        os.startfile(url)
-    elif platform.system() == "Darwin":
-        subprocess.run(["open", url], check=False)
-    else:
-        subprocess.run(["xdg-open", url], check=False)
-
-
-HELP_URL = f"https://github.com/{update_check.DEPOT}#readme"
-
-
 def _run_update_worker(state: SharedState, expected_version: str, stop_event: threading.Event) -> None:
     """Telecharge, verifie et installe la mise a jour vers expected_version,
     puis demande l'arret du process (stop_event) pour laisser le helper
@@ -688,108 +678,81 @@ def _run_update_worker(state: SharedState, expected_version: str, stop_event: th
 def _tray_disponible() -> bool:
     """Faux si pystray ou son image ne peuvent pas etre charges ici :
     bibliotheque absente, ou aucun backend de zone de notification (Linux
-    sans AppIndicator/GTK, session sans affichage). except Exception, pas
-    ImportError : sur Linux sans serveur X11, importer pystray leve
-    Xlib.error.DisplayNameError (un RuntimeError, pas un ImportError) -
-    constate en reel sur le build CI de lidar2map. Meme garde que
-    blink2video/tray.py.disponible()."""
+    sans AppIndicator/GTK, session sans affichage). Garde commune aux
+    quatre applications, dans nico579_commons.tray."""
+    return apptray.disponible()
+
+
+def _langue_tray() -> str:
     try:
-        import pystray  # noqa: F401
-        from PIL import Image  # noqa: F401
-    except Exception:
-        return False
-    return True
+        return load_config().get("lang") or i18n.detect_default_lang()
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return i18n.detect_default_lang()
 
 
-def _build_tray_image():
-    from PIL import Image
+def _actions_tray(url: str, state: SharedState, stop_event: threading.Event,
+                  arreter_serveur) -> apptray.Actions:
+    """Ce que watch2notif donne au menu, le meme dans les quatre
+    applications : Ouvrir, Mettre a jour quand une version est connue,
+    Redemarrer, Arreter, Creer un raccourci sur le Bureau. Pause,
+    historique et aide sont dans la page qu'ouvre Ouvrir."""
 
-    return Image.open(str(ICON_FILE))
+    def _version_disponible():
+        info = state.update_snapshot()["info"]
+        return info["version"] if info else None
 
-
-def _construire_tray(url: str, state: SharedState, stop_event: threading.Event):
-    """Icone de zone de notification : Pause/Reprendre (coche selon
-    pause_event), Reglages/Historique (ouvrent le navigateur), Mise a jour
-    (visible seulement si une version est disponible), Aide, Quitter.
-    Contenu propre a watch2notif (pause de polling en particulier, absent
-    de lidar2map/blink2video) - seul le mecanisme (pystray, generateur de
-    menu relu periodiquement) est partage avec eux.
-
-    Rafraichissement : meme contournement que blink2video/tray.py - le
-    backend win32 de pystray ne rappelle pas le generateur menu() a chaque
-    clic droit, seul un icon.update_menu() explicite le fait (verifie dans
-    pystray/_win32.py). Un thread dedie l'appelle toutes les 5s pour que
-    pause/mise a jour restent a jour sans redemarrer l'icone."""
-    import pystray
-
-    def _lang() -> str:
-        try:
-            return load_config().get("lang") or i18n.detect_default_lang()
-        except (OSError, json.JSONDecodeError, AttributeError):
-            return i18n.detect_default_lang()
-
-    def _ouvrir(icon=None, item=None):
-        webbrowser.open(url)
-
-    def _basculer_pause(icon, item):
-        if state.pause_event.is_set():
-            state.pause_event.clear()
+    def _mettre_a_jour() -> None:
+        # Installation directe quand elle est possible, meme chemin que le
+        # bouton de la page ; l'icone reste pendant le telechargement, et
+        # _run_update_worker leve stop_event une fois le helper pret. Sinon
+        # (sources, dossier non inscriptible...), ou si un telechargement
+        # est deja en cours, la page dit ou en est la mise a jour.
+        automatic, _reason = self_update.can_install_automatically()
+        if automatic and state.begin_update():
+            info = state.update_info_snapshot()
+            threading.Thread(target=_run_update_worker,
+                             args=(state, info["version"], stop_event), daemon=True).start()
         else:
-            state.pause_event.set()
+            webbrowser.open(url)
 
-    def _quitter(icon, item):
-        stop_event.set()
-        icon.stop()
+    def _redemarrer() -> None:
+        # Port et verrou liberes avant la relance : le nouveau process
+        # demarre pendant que celui-ci finit de sortir.
+        arreter_serveur()
+        single_instance.release()
+        relance.relancer(autostart_manager.notifier_command(), nom="watch2notif",
+                         cwd=str(autostart_manager.PROJECT_DIR))
 
-    def _menu():
-        lang = _lang()
-        yield pystray.MenuItem(
-            i18n.t("tray_pause", lang),
-            _basculer_pause,
-            checked=lambda item: state.pause_event.is_set(),
-        )
-        yield pystray.MenuItem(i18n.t("tray_settings", lang), _ouvrir, default=True)
-        yield pystray.MenuItem(i18n.t("tray_history", lang), _ouvrir)
+    def _creer_raccourci() -> None:
+        # --settings : ouvre la page, que watch2notif tourne deja ou non.
+        raccourci.creer("watch2notif", autostart_manager.notifier_command() + ["--settings"],
+                        autostart_manager.PROJECT_DIR, icone=ICON_FILE,
+                        description="watch2notif", langue=_langue_tray())
 
-        snapshot = state.update_snapshot()
-        info = snapshot["info"]
-        if info:
-            if snapshot["status"] == UPDATE_PREPARING:
-                key = "tray_update_downloading"
-            elif snapshot["status"] == UPDATE_FAILED:
-                key = "tray_update_retry"
-            else:
-                automatic, _reason = self_update.can_install_automatically()
-                key = "tray_update_install" if automatic else "tray_update_view"
-            yield pystray.MenuItem(i18n.t(key, lang, version=info["version"]), _ouvrir)
+    return apptray.Actions(
+        ouvrir=lambda: webbrowser.open(url),
+        redemarrer=_redemarrer,
+        arreter=arreter_serveur,
+        version_disponible=_version_disponible,
+        mettre_a_jour=_mettre_a_jour,
+        mettre_a_jour_referme=False,
+        creer_raccourci=_creer_raccourci,
+        langue=_langue_tray,
+    )
 
-        yield pystray.MenuItem(i18n.t("tray_help", lang), lambda icon, item: open_url(HELP_URL))
-        yield pystray.MenuItem(i18n.t("tray_quit", lang), _quitter)
 
-    icon = pystray.Icon("watch2notif", _build_tray_image(), "watch2notif", menu=pystray.Menu(_menu))
-
-    def _rafraichir():
-        while not stop_event.wait(timeout=5):
-            try:
-                icon.update_menu()
-            except Exception:
-                pass
-        # stop_event peut venir de _quitter() (qui a deja appele icon.stop()
-        # lui-meme, pour une reaction immediate au clic) ou de
-        # _run_update_worker() apres une mise a jour installee, qui n'a pas
-        # acces a icon. Sans cet appel ici, ce second cas ne debloquait
-        # jamais icon.run() : le process restait vivant indefiniment,
-        # empechant le helper externe de remplacer le binaire (trouve en
-        # audit, jamais declenche en usage reel car aucune mise a jour
-        # n'avait encore ete installee depuis la page web plutot que via un
-        # simple redemarrage manuel).
-        try:
-            icon.stop()
-        except Exception:
-            pass
-
-    threading.Thread(target=_rafraichir, daemon=True).start()
-    return icon
+def _construire_tray(url: str, state: SharedState, stop_event: threading.Event,
+                     arreter_serveur=lambda: None) -> apptray.Tray:
+    """L'icone de zone de notification, par nico579_commons.tray : menu
+    reconstruit toutes les 5 s (le backend win32 de pystray garderait
+    sinon celui du demarrage), sur le fil principal sous macOS, actions
+    d'arret hors de la pompe de messages. stop_event sert d'arret :
+    Arreter, Redemarrer, et la fin d'une mise a jour installee
+    (_run_update_worker, qui n'a pas acces a l'icone) referment l'icone
+    et rendent la main a main()."""
+    return apptray.Tray("watch2notif", ICON_FILE,
+                        _actions_tray(url, state, stop_event, arreter_serveur),
+                        arret=stop_event)
 
 
 def build_api_routes(pause_event: threading.Event, state: SharedState, stop_event: threading.Event) -> tuple:
@@ -888,6 +851,10 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
 
 
 def main() -> None:
+    # Avant tout lancement de programme du systeme (xdg-open, systemctl,
+    # navigateur) : sous Linux, le binaire leur transmettrait sinon ses
+    # propres bibliotheques (issue #23 de blink2video).
+    environnement.retablir_environnement_systeme()
     data_paths.migrer_donnees_existantes()
     url = f"http://127.0.0.1:{PORT}/"
 
@@ -959,8 +926,8 @@ def main() -> None:
         return
 
     print("regarde dans la zone de notification pour l'icone watch2notif.")
-    icon = _construire_tray(url, state, stop_event)
-    icon.run()  # bloque jusqu'a icon.stop() (Quitter, ou fin de mise a jour)
+    # Bloque jusqu'a Arreter, Redemarrer, ou la fin d'une mise a jour.
+    _construire_tray(url, state, stop_event, _arreter_serveur).executer()
 
     _arreter_serveur()
     print("watch2notif arrete.")

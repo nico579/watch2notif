@@ -52,14 +52,11 @@ STRINGS = {
     },
     "ok_title": {"en": "OK", "fr": "OK"},
     "ok_msg": {"en": "Settings saved to config.json.", "fr": "Reglages sauvegardes dans config.json."},
+    # Le menu de l'icone vient, traduit, de nico579_commons.tray. Ces cles
+    # tray_* gardent leur nom d'origine mais servent la page : case de
+    # pause et bandeau de mise a jour.
     "tray_pause": {"en": "Pause polling", "fr": "Mettre en pause"},
-    "tray_settings": {"en": "Settings...", "fr": "Reglages..."},
-    "tray_history": {"en": "Notification history...", "fr": "Historique des notifications..."},
     "tray_update_available": {"en": "New version available (v{version})", "fr": "Nouvelle version disponible (v{version})"},
-    "tray_update_install": {
-        "en": "Install update v{version}...",
-        "fr": "Installer la mise a jour v{version}...",
-    },
     "tray_update_downloading": {
         "en": "Downloading update v{version}...",
         "fr": "Telechargement de la mise a jour v{version}...",
@@ -68,12 +65,7 @@ STRINGS = {
         "en": "Retry update v{version}...",
         "fr": "Reessayer la mise a jour v{version}...",
     },
-    "tray_update_view": {
-        "en": "View update v{version}...",
-        "fr": "Voir la mise a jour v{version}...",
-    },
-    "tray_help": {"en": "Help (GitHub)", "fr": "Aide (GitHub)"},
-    "tray_quit": {"en": "Quit", "fr": "Quitter"},
+    "help_link": {"en": "Help (GitHub)", "fr": "Aide (GitHub)"},
     "update_notif_title": {"en": "watch2notif update available", "fr": "Mise a jour watch2notif disponible"},
     "update_notif_body": {
         "en": "Version {version} is out (currently running {current}). Open the tray menu to install it.",

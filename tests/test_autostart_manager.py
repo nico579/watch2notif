@@ -95,7 +95,7 @@ class RaccourciWindowsTests(unittest.TestCase):
              + "); Write-Output $s.TargetPath"],
             capture_output=True, text=True, check=True)
         self.assertEqual(Path(lecture.stdout.strip()),
-                         Path(autostart_manager._notifier_command()[0]))
+                         Path(autostart_manager.notifier_command()[0]))
 
 
 class MigrationHorsWindowsTests(unittest.TestCase):

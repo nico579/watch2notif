@@ -32,10 +32,14 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   `data_paths.py`), jamais a cote de l'executable : une reinstallation ou
   une reconstruction ne doit jamais les effacer. C'est aussi le
   point d'entree unique du binaire construit : une icone de zone de
-  notification (`pystray`) propose la pause du polling, l'ouverture de la
-  page de reglages/historique (dans le navigateur par defaut), un lien
-  d'aide GitHub, et quitter ; verifie la page de
-  releases GitHub toutes les 6h et ajoute une entree de menu + une
+  notification (`pystray`, par
+  [nico579-commons](https://github.com/nico579/nico579-commons)) au meme
+  menu que les trois applications soeurs : Ouvrir (la page de
+  reglages/historique, dans le navigateur par defaut), Mettre a jour
+  quand une version plus recente existe, Redemarrer, Arreter, et Creer un
+  raccourci sur le Bureau. La pause, l'historique et le lien d'aide
+  GitHub sont dans la page. Verifie la page de
+  releases GitHub toutes les 6h et ajoute cette entree de menu + une
   notification desktop unique quand une nouvelle version sort
   (`update_check.py`). Dans l'application empaquetee, la page de reglages
   propose de l'installer, verifie la taille et le SHA-256 de l'asset,
@@ -54,8 +58,8 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   lien), servie en HTTP local (stdlib `http.server`, aucun framework) et
   ouverte dans le navigateur par defaut du systeme - meme architecture
   que les projets jumeaux lidar2map et blink2video. Bilingue FR/EN,
-  bascule en haut a droite. Accessible depuis les entrees
-  "Reglages..."/"Historique..." du tray, ou avec `notifier.py --settings`.
+  bascule en haut a droite. Accessible depuis l'entree Ouvrir du tray, ou
+  avec `notifier.py --settings`.
 - `notify_backend.py` : backend de notification par OS - `win11toast`
   (Windows, toast WinRT moderne, bon nom d'appli, cliquable), `pync`
   (Mac, via terminal-notifier, cliquable), `plyer` (Linux, pas encore
@@ -80,11 +84,12 @@ python notifier.py   # le premier lancement ouvre la page de reglages dans le na
 Chaque release fournit des bundles pre-construits (Windows/Linux/Mac) sur
 la page [Releases](../../releases), sans Python a installer : un seul
 executable, `watch2notif`. Le lancer demarre la surveillance ; la page de
-reglages/historique s'ouvre depuis son icone de tray ("Reglages...") ou
+reglages/historique s'ouvre depuis son icone de tray (Ouvrir) ou
 avec `watch2notif --settings`.
 
 Lorsqu'une mise a jour compatible est publiee, la page de reglages affiche
-un bandeau avant tout telechargement. "Telecharger et installer" prepare
+un bandeau avant tout telechargement. "Telecharger et installer", ou
+Mettre a jour dans le menu du tray, prepare
 et valide le nouveau bundle complet ; watch2notif ne se ferme que lorsque
 le programme de remplacement externe est pret, puis redemarre sur la
 nouvelle version. Si la preparation, le remplacement ou le redemarrage

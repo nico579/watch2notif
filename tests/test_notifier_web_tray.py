@@ -415,69 +415,145 @@ class HttpApiTests(unittest.TestCase):
 
 @unittest.skipUnless(notifier._tray_disponible(), "zone de notification indisponible sur cette machine")
 class TrayMenuTests(unittest.TestCase):
-    """Construit le vrai tray (pystray) et inspecte son menu, sans jamais
-    appeler icon.run() - un test qui l'appellerait bloquerait indefiniment
-    et ferait apparaitre une vraie icone (regression constatee pendant la
-    migration lidar2map, cf. memoire de session)."""
+    """Construit le vrai tray (pystray, par nico579_commons.tray) et
+    inspecte son menu, sans jamais appeler icon.run() ni executer() : ils
+    bloqueraient indefiniment et feraient apparaitre une vraie icone
+    (regression constatee pendant la migration lidar2map)."""
 
     def setUp(self):
         self.pause_event = threading.Event()
         self.state = notifier.SharedState(self.pause_event)
         self.stop_event = threading.Event()
-        self.lang_patch = mock.patch.object(notifier, "load_config", return_value={"lang": "en"})
-        self.lang_patch.start()
-        self.icon = notifier._construire_tray("http://127.0.0.1:0/", self.state, self.stop_event)
-
-    def tearDown(self):
-        self.stop_event.set()  # arrete le thread de rafraichissement du menu
-        self.lang_patch.stop()
+        lang_patch = mock.patch.object(notifier, "load_config", return_value={"lang": "en"})
+        lang_patch.start()
+        self.addCleanup(lang_patch.stop)
+        self.tray = notifier._construire_tray("http://127.0.0.1:0/", self.state, self.stop_event)
+        self.icon = self.tray.construire()
 
     def _labels(self):
         return [str(item) for item in self.icon.menu]
 
-    def test_menu_has_no_update_item_when_none_available(self):
-        labels = self._labels()
-        self.assertEqual(len(labels), 5)
-        self.assertTrue(any("pause" in label.lower() for label in labels))
-        self.assertTrue(any(label == "Quit" for label in labels))
+    def test_menu_commun_sans_mise_a_jour(self):
+        # Le meme menu dans les quatre applications, sans element propre :
+        # pause, historique et aide sont dans la page qu'ouvre Open.
+        self.assertEqual(self._labels(), [
+            "Open", "Restart", "Stop", "Create a Desktop shortcut"])
 
-    def test_stop_event_stops_the_icon_even_without_a_quit_click(self):
-        # _run_update_worker() (declenche par /api/update-install depuis la
-        # page web) n'a pas acces a icon, seul le thread de rafraichissement
-        # ici (qui observe stop_event) peut l'arreter pour lui. Sans cet
-        # appel, icon.run() ne se debloquait jamais apres une mise a jour
-        # installee depuis le web, seul le clic tray "Quitter" appelait
-        # icon.stop() directement (trouve en audit ; verifie ici sans
-        # jamais appeler icon.run() lui-meme).
-        with mock.patch.object(self.icon, "stop") as stop_mock:
-            self.stop_event.set()
-            for _ in range(50):
-                if stop_mock.called:
+    def test_menu_en_francais(self):
+        with mock.patch.object(notifier, "load_config", return_value={"lang": "fr"}):
+            labels = self._labels()
+        self.assertEqual(labels, ["Ouvrir", "Redémarrer", "Arrêter",
+                                  "Créer un raccourci sur le Bureau"])
+
+    def test_stop_event_est_l_arret_de_l_icone(self):
+        # _run_update_worker() leve stop_event une fois le helper pret, sans
+        # acces a l'icone : c'est l'arret du Tray commun qui la referme (sa
+        # veille, testee dans nico579-commons). Sans ce lien, icon.run() ne
+        # se debloquait jamais apres une mise a jour installee.
+        self.assertIs(self.tray.arret, self.stop_event)
+
+    def test_mise_a_jour_affichee_quand_une_version_est_connue(self):
+        self.state.mark_update_seen({"version": "9.9.9"})
+        self.assertIn("Update to 9.9.9", self._labels())
+        # Meme libelle pendant le telechargement : un second clic ouvre la
+        # page, qui montre ou il en est.
+        self.state.begin_update()
+        self.assertIn("Update to 9.9.9", self._labels())
+
+    def test_ouvrir_ouvre_la_page(self):
+        # MenuItem est appelable (__call__(icon) -> action(icon, item)) :
+        # c'est ainsi qu'un clic reel invoque le callback.
+        ouvrir = next(item for item in self.icon.menu if str(item) == "Open")
+        self.assertTrue(ouvrir.default)
+        with mock.patch.object(notifier.webbrowser, "open") as navigateur:
+            ouvrir(self.icon)
+        navigateur.assert_called_once_with("http://127.0.0.1:0/")
+
+
+class TrayActionsTests(unittest.TestCase):
+    """Les actions que watch2notif donne au menu commun, appelees
+    directement : ni icone, ni vraie relance, ni vrai raccourci sur le
+    Bureau (voir memoire feedback-tests-bureau-reel)."""
+
+    URL = "http://127.0.0.1:0/"
+
+    def setUp(self):
+        self.state = notifier.SharedState(threading.Event())
+        self.stop_event = threading.Event()
+        self.journal = []
+        self.actions = notifier._actions_tray(
+            self.URL, self.state, self.stop_event,
+            lambda: self.journal.append("serveur arrete"))
+
+    def test_redemarrer_libere_port_et_verrou_puis_relance(self):
+        def relancer(commande, **options):
+            self.journal.append(("relance", commande, options))
+            return "processus"
+
+        with mock.patch.object(notifier.single_instance, "release",
+                               side_effect=lambda: self.journal.append("verrou libere")), \
+                mock.patch.object(notifier.relance, "relancer", side_effect=relancer):
+            self.actions.redemarrer()
+        self.assertEqual(self.journal[:2], ["serveur arrete", "verrou libere"])
+        _, commande, options = self.journal[2]
+        self.assertEqual(commande, notifier.autostart_manager.notifier_command())
+        self.assertEqual(options["nom"], "watch2notif")
+
+    def test_arreter_arrete_le_serveur(self):
+        self.actions.arreter()
+        self.assertEqual(self.journal, ["serveur arrete"])
+
+    def test_version_disponible(self):
+        self.assertIsNone(self.actions.version_disponible())
+        self.state.mark_update_seen({"version": "9.9.9"})
+        self.assertEqual(self.actions.version_disponible(), "9.9.9")
+
+    def test_mettre_a_jour_installe_quand_c_est_possible(self):
+        self.assertFalse(self.actions.mettre_a_jour_referme)
+        self.state.mark_update_seen({"version": "9.9.9"})
+        with mock.patch.object(notifier.self_update, "can_install_automatically",
+                               return_value=(True, "")), \
+                mock.patch.object(notifier, "_run_update_worker") as worker, \
+                mock.patch.object(notifier.webbrowser, "open") as ouvrir:
+            self.actions.mettre_a_jour()
+            for _ in range(50):  # le telechargement part sur un fil
+                if worker.called:
                     break
                 time.sleep(0.02)
-        stop_mock.assert_called_once()
+        worker.assert_called_once_with(self.state, "9.9.9", self.stop_event)
+        ouvrir.assert_not_called()
 
-    def test_menu_shows_install_item_when_update_available(self):
-        with mock.patch.object(notifier.self_update, "can_install_automatically", return_value=(True, "")):
-            self.state.mark_update_seen({"version": "9.9.9"})
-            labels = self._labels()
-        self.assertEqual(len(labels), 6)
-        self.assertTrue(any("9.9.9" in label for label in labels))
-
-    def test_menu_shows_downloading_while_preparing(self):
+    def test_mettre_a_jour_ouvre_la_page_sinon(self):
         self.state.mark_update_seen({"version": "9.9.9"})
-        self.state.begin_update()
-        labels = self._labels()
-        self.assertTrue(any("Downloading" in label for label in labels))
+        # Installation impossible ici (sources...), puis telechargement deja
+        # en cours : la page dit ou en est la mise a jour.
+        for automatique, en_cours in ((False, False), (True, True)):
+            with self.subTest(automatique=automatique, en_cours=en_cours):
+                if en_cours:
+                    self.assertTrue(self.state.begin_update())
+                with mock.patch.object(notifier.self_update, "can_install_automatically",
+                                       return_value=(automatique, "")), \
+                        mock.patch.object(notifier, "_run_update_worker") as worker, \
+                        mock.patch.object(notifier.webbrowser, "open") as ouvrir:
+                    self.actions.mettre_a_jour()
+                ouvrir.assert_called_once_with(self.URL)
+                worker.assert_not_called()
 
-    def test_pause_toggle_flips_the_real_event(self):
-        # MenuItem est appelable (__call__(icon) -> action(icon, item)) :
-        # pas de toggle() public dans l'API pystray, c'est ainsi qu'un clic
-        # reel invoque le callback.
-        pause_item = next(item for item in self.icon.menu if "pause" in str(item).lower())
-        self.assertFalse(self.pause_event.is_set())
-        pause_item(self.icon)
-        self.assertTrue(self.pause_event.is_set())
+    def test_aide_dans_la_page_plus_dans_le_menu(self):
+        # L'aide a quitte le menu pour l'en-tete de la page, comme le bouton
+        # Aide de lidar2map et gpxsolar.
+        page = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="https://github.com/nico579/watch2notif#readme"', page)
+        self.assertIn('data-i18n="help_link"', page)
+        self.assertEqual(notifier.i18n.t("help_link", "fr"), "Aide (GitHub)")
+
+    def test_creer_raccourci_ouvre_les_reglages(self):
+        with mock.patch.object(notifier.raccourci, "creer", return_value=0) as creer:
+            self.actions.creer_raccourci()
+        args, kwargs = creer.call_args
+        self.assertEqual(args[0], "watch2notif")
+        self.assertEqual(args[1], notifier.autostart_manager.notifier_command() + ["--settings"])
+        self.assertEqual(kwargs["icone"], notifier.ICON_FILE)
 
 
 if __name__ == "__main__":

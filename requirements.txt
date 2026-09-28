@@ -19,3 +19,7 @@ pystray==0.19.5
 # produire l'icone .exe/.icns native (watch2notif.spec) : plus seulement
 # un outil de build depuis le retrait de Qt.
 Pillow==12.3.0
+# Briques communes aux quatre applications (menu de l'icone, relance,
+# raccourci, environnement des programmes lances) :
+# https://github.com/nico579/nico579-commons
+nico579-commons==0.3.0

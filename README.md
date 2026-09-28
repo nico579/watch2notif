@@ -29,10 +29,14 @@ added as a `providers/` module, nothing else to touch.
   Mac, via `platformdirs`, see `data_paths.py`), never next to the
   executable: a reinstall or rebuild must never wipe them. Also the single
   entry point of
-  the built binary: a system tray icon (`pystray`) offers pause polling,
-  opening the settings/history page (in the default browser), a GitHub
-  help link, and quit; checks the GitHub releases page every 6h and adds
-  a menu entry + one desktop notification when a newer version is out. In
+  the built binary: a system tray icon (`pystray`, through
+  [nico579-commons](https://github.com/nico579/nico579-commons)) with the
+  same menu as its three sibling apps: Open (the settings/history page, in
+  the default browser), "Update to x.y" when a newer version is out,
+  Restart, Stop, and "Create a Desktop shortcut". Pausing, the history and
+  the GitHub help link live in the page. It checks the GitHub releases
+  page every 6h and adds that menu entry + one desktop notification when
+  a newer version is out. In
   a packaged app, the settings page offers to install it, verifies the
   published asset's size and SHA-256, then replaces the bundle after
   shutdown and restarts it while preserving settings and notification
@@ -48,8 +52,8 @@ added as a `providers/` module, nothing else to touch.
   reopen its link) served on local HTTP (stdlib `http.server`, no
   framework) and opened in the system's default browser — same
   architecture as the sibling projects, lidar2map and blink2video.
-  Bilingual FR/EN, toggle top-right. Reachable from the tray's
-  "Settings..."/"History..." items, or with `notifier.py --settings`.
+  Bilingual FR/EN, toggle top-right. Reachable from the tray's "Open"
+  item, or with `notifier.py --settings`.
 - `notify_backend.py`: notification backend per OS — `win11toast`
   (Windows, modern WinRT toast, correct app name, clickable), `pync`
   (Mac, via terminal-notifier, clickable), `plyer` (Linux, not clickable
@@ -73,10 +77,11 @@ python notifier.py   # first run opens the settings page in your browser
 Each release ships pre-built bundles (Windows/Linux/Mac) on the
 [Releases](../../releases) page, no Python required: a single executable,
 `watch2notif`. Run it to start watching; open the settings/history page
-from its tray icon ("Settings...") or with `watch2notif --settings`.
+from its tray icon ("Open") or with `watch2notif --settings`.
 
 When a compatible update is published, the settings page shows a banner
-before downloading anything. "Download and install" prepares and
+before downloading anything. "Download and install", or "Update to x.y"
+in the tray menu, prepares and
 validates the whole new bundle first; watch2notif closes only when the
 external updater is ready, then restarts on the new version. If
 preparation, replacement, or restart fails, the current installation is

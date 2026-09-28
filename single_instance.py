@@ -40,3 +40,22 @@ def acquire(base_dir: Path) -> bool:
 
     _lock_file = handle  # reference gardee : fermer le fd liberait le verrou
     return True
+
+
+def release() -> None:
+    """Relache le verrou avant la fin du process : Redemarrer lance le
+    nouveau process avant que celui-ci ne soit sorti, et le nouveau doit
+    pouvoir le prendre. Sous Windows, deverrouillage explicite avant la
+    fermeture : Microsoft ne garantit pas quand la fermeture seule rend
+    l'octet verrouille."""
+    global _lock_file
+    if _lock_file is None:
+        return
+    try:
+        if sys.platform == "win32":
+            _lock_file.seek(0)
+            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    _lock_file.close()
+    _lock_file = None

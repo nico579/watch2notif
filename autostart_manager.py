@@ -23,7 +23,7 @@ LINUX_SERVICE_NAME = "watch2notif.service"
 MAC_LABEL = "com.nico.watch2notif"
 
 
-def _notifier_command() -> list:
+def notifier_command() -> list:
     """Commande a lancer pour demarrer le poller de fond, adaptee selon
     qu'on tourne depuis les sources ou depuis le bundle fige : dans ce
     dernier cas, watch2notif.exe (executable unique, poller + panneau de
@@ -119,7 +119,7 @@ def _enable_windows() -> None:
     Remplace le script .vbs des versions <= 0.2.3 : VBScript est en cours de
     retrait de Windows, et wscript lisait ce script, ecrit en UTF-8 sans BOM,
     dans la page de code ANSI (un chemin accentue ne menait nulle part)."""
-    commande = _notifier_command()
+    commande = notifier_command()
     cible = _windows_startup_file()
     cible.parent.mkdir(parents=True, exist_ok=True)
     script = (
@@ -162,7 +162,7 @@ def _enable_linux() -> None:
         "[Service]\n"
         "Type=simple\n"
         f"WorkingDirectory={PROJECT_DIR}\n"
-        f"ExecStart={' '.join(_notifier_command())}\n"
+        f"ExecStart={' '.join(notifier_command())}\n"
         "Restart=on-failure\n"
         "RestartSec=10\n\n"
         "[Install]\n"
@@ -190,7 +190,7 @@ def _enable_mac() -> None:
         '<plist version="1.0">\n<dict>\n'
         f"    <key>Label</key>\n    <string>{MAC_LABEL}</string>\n"
         "    <key>ProgramArguments</key>\n    <array>\n"
-        + "".join(f"        <string>{part}</string>\n" for part in _notifier_command())
+        + "".join(f"        <string>{part}</string>\n" for part in notifier_command())
         + "    </array>\n"
         f"    <key>WorkingDirectory</key>\n    <string>{PROJECT_DIR}</string>\n"
         "    <key>RunAtLoad</key>\n    <true/>\n"
