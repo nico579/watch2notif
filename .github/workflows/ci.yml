@@ -71,3 +71,13 @@ jobs:
       - name: Verifier que l'executable existe
         shell: bash
         run: test -f "${{ matrix.notifier }}" || { echo "notifier manquant"; exit 1; }
+
+      # Le binaire lui-meme, pas seulement sa presence : --self-test-version
+      # charge tout le programme (une dependance oubliee au moment
+      # d'empaqueter, nico579-commons par exemple, le ferait echouer),
+      # verifie la version et l'icone, puis sort sans rien demarrer.
+      - name: Lancer l'executable (imports, version, icone)
+        shell: bash
+        run: |
+          version=$(python -c "import update_check; print(update_check.VERSION)")
+          "${{ matrix.notifier }}" --self-test-version "$version"
