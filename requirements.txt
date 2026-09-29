@@ -22,4 +22,4 @@ Pillow==12.3.0
 # Briques communes aux quatre applications (menu de l'icone, relance,
 # raccourci, environnement des programmes lances) :
 # https://github.com/nico579/nico579-commons
-nico579-commons==0.3.0
+nico579-commons==0.3.1
