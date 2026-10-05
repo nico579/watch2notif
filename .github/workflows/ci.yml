@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
 
       - name: Installer les dependances
-        run: python -m pip install --quiet -r requirements.txt
+        run: python -m pip install --quiet --require-hashes -r requirements.txt
 
       - name: Compiler tous les modules
         run: python -m compileall -q .
@@ -81,3 +81,34 @@ jobs:
         run: |
           version=$(python -c "import update_check; print(update_check.VERSION)")
           "${{ matrix.notifier }}" --self-test-version "$version"
+
+  # Chaque système de construction de release.yml (windows-latest,
+  # ubuntu-22.04, macos-latest) doit pouvoir installer les deux verrous, avec
+  # son Python 3.12 : un verrou régénéré qui choisirait une version sans roue
+  # pour l'un d'eux casserait sa construction, le jour de la release. Les
+  # paquets livrés en source sont listés par système, exactement : un nouveau
+  # paquet sans roue fait échouer ce job au lieu de passer inaperçu.
+  #   pync : publié en source seulement, macOS uniquement.
+  verrous:
+    name: Verrous des dependances
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.9.28
+      - name: Roues pour les trois systemes de construction
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "15.0"
+        run: |
+          for verrou in requirements.txt requirements-build.txt; do
+            for cible in x86_64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-apple-darwin; do
+              case "$cible" in
+                aarch64-apple-darwin) sources="pync" ;;
+                *) sources="" ;;
+              esac
+              echo "== $verrou pour $cible (en source : ${sources:-aucun})"
+              uv pip compile "$verrou" --python-platform "$cible" --python-version 3.12                 --only-binary :all: ${sources:+--no-binary "$sources"} --no-header -q -o /tmp/roues.txt
+            done
+          done

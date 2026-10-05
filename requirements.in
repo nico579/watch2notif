@@ -1,0 +1,32 @@
+# Les dépendances de watch2notif, déclarées une seule fois et sans versions :
+# le verrou exact (version et empreinte SHA-256 de chaque paquet, pour les
+# trois systèmes à la fois) est généré dans requirements.txt par uv, voir
+# l'en-tête de ce fichier. Même schéma que lidar2map, gpxsolar et blink2video.
+
+# Lecture des flux RSS et Atom
+feedparser
+
+# Dossier d'état standard de l'OS
+platformdirs
+
+# Notifications du système : un paquet par système, chacun installé là seulement.
+win11toast; sys_platform == "win32"
+pync; sys_platform == "darwin"
+plyer; sys_platform == "linux"
+
+# Icône de zone de notification, remplace PySide6/QSystemTrayIcon. Pillow charge
+# assets/watch2notif.png comme image d'icône à l'exécution, et PyInstaller s'en
+# sert à la construction pour produire l'icône native (.exe, .icns).
+pystray
+Pillow
+
+# Briques communes aux quatre applications (menu de l'icône, relance,
+# raccourci, environnement des programmes lancés). Fourchette : une version
+# incompatible de la bibliothèque ne peut pas entrer dans le verrou.
+nico579-commons>=0.4.0,<0.5
+
+# Linux : l'icône parle le protocole StatusNotifierItem par D-Bus quand le
+# bureau a un hôte (GNOME avec l'extension AppIndicator, KDE), faute de quoi
+# pystray n'ouvre aucun menu sous Wayland. jeepney (Python pur) est le
+# complément Linux de l'extra « tray » de nico579-commons.
+jeepney; sys_platform == "linux"
