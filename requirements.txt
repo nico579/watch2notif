@@ -22,4 +22,9 @@ Pillow==12.3.0
 # Briques communes aux quatre applications (menu de l'icone, relance,
 # raccourci, environnement des programmes lances) :
 # https://github.com/nico579/nico579-commons
-nico579-commons==0.3.1
+nico579-commons==0.4.0
+# Linux : l'icone parle le protocole StatusNotifierItem par D-Bus quand le
+# bureau a un hote (GNOME avec l'extension AppIndicator, KDE), faute de quoi
+# pystray n'ouvre aucun menu sous Wayland. Python pur ; complement Linux de
+# l'extra "tray" de nico579-commons.
+jeepney==0.9.0; sys_platform == "linux"
