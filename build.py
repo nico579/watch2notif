@@ -47,7 +47,11 @@ def main() -> int:
                  "creation de l'environnement de construction")
     executer([str(PYTHON), "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
              "mise a jour de pip")
-    executer([str(PYTHON), "-m", "pip", "install", "--quiet", "-r", "requirements.txt", "pyinstaller"],
+    # Le verrou de construction (requirements-build.txt) : version exacte et
+    # empreinte de chaque paquet, PyInstaller compris. Sans lui, une
+    # reconstruction des mois plus tard pouvait embarquer une autre version.
+    executer([str(PYTHON), "-m", "pip", "install", "--quiet", "--require-hashes",
+              "-r", "requirements-build.txt"],
              "installation des dependances")
     executer([str(PYTHON), "-m", "PyInstaller", "--noconfirm", "--clean",
               str(BASE_DIR / "watch2notif.spec")],
