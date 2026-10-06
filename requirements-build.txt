@@ -28,9 +28,9 @@ macholib==1.16.4 ; sys_platform == 'darwin' \
     --hash=sha256:da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea \
     --hash=sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362
     # via pyinstaller
-nico579-commons==0.4.1 \
-    --hash=sha256:da435748f72f29be2ea0f59d4546639471493abacefa80218e7831bb528eb408 \
-    --hash=sha256:f684c155e50ef5f471a11e9a9dc650896234959c7fad88466d88da8a20c38045
+nico579-commons==0.4.2 \
+    --hash=sha256:2c1d2317087a7abfbc21998a32ec97c3ba98bfb8694ee0616397d7dde14acdbf \
+    --hash=sha256:ea95b36af4f73d8976d48c75b59361db5248e27db519caf655b23b6dfed44742
     # via
     #   -c requirements.txt
     #   -r requirements.in
