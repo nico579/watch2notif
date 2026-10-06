@@ -16,7 +16,6 @@ import os
 import socket
 import tempfile
 import threading
-import time
 import unittest
 import urllib.error
 import urllib.request
@@ -26,50 +25,38 @@ from unittest import mock
 import notifier
 
 
+class FauxVerificateur:
+    """La dernière release connue (None : rien de plus récent)."""
+
+    def __init__(self, version):
+        self.version = version
+
+    def disponible(self):
+        return {"version": self.version, "page": "https://example.test", "assets": []} \
+            if self.version else None
+
+
+class FauxInstallateur:
+    def __init__(self, possible=True, accepte=True):
+        self._possible, self._accepte, self.demarre = possible, accepte, 0
+
+    def possible(self):
+        return (self._possible, "" if self._possible else "source_mode")
+
+    def demarrer(self):
+        if self._accepte:
+            self.demarre += 1
+        return self._accepte
+
+
 class SharedStateTests(unittest.TestCase):
-    def setUp(self):
-        self.state = notifier.SharedState(threading.Event())
-
-    def test_no_info_resets_to_none_when_not_inflight(self):
-        self.state.mark_update_seen({"version": "9.0.0"})
-        self.state.mark_update_seen(None)
-        snap = self.state.update_snapshot()
-        self.assertEqual(snap["status"], notifier.UPDATE_NONE)
-        self.assertIsNone(snap["info"])
-
-    def test_concurrent_empty_check_does_not_erase_inflight_download(self):
-        self.state.mark_update_seen({"version": "9.0.0"})
-        self.assertTrue(self.state.begin_update())
-        # Un check concurrent revient vide pendant que begin_update() a deja
-        # bascule en PREPARING : ne doit pas effacer update_info (meme garde
-        # que l'ancien TrayApp._on_update_available).
-        self.state.mark_update_seen(None)
-        snap = self.state.update_snapshot()
-        self.assertEqual(snap["status"], notifier.UPDATE_PREPARING)
-        self.assertEqual(snap["info"]["version"], "9.0.0")
-
-    def test_begin_update_refuses_double_start(self):
-        self.state.mark_update_seen({"version": "1.2.3"})
-        self.assertTrue(self.state.begin_update())
-        self.assertFalse(self.state.begin_update())
-
-    def test_begin_update_refuses_without_known_version(self):
-        self.assertFalse(self.state.begin_update())
-
-    def test_mark_failed_clears_inflight_and_records_error(self):
-        self.state.mark_update_seen({"version": "1.2.3"})
-        self.state.begin_update()
-        self.state.mark_update_failed({"code": "download_failed", "detail": "x"})
-        snap = self.state.update_snapshot()
-        self.assertEqual(snap["status"], notifier.UPDATE_FAILED)
-        self.assertEqual(snap["error"]["code"], "download_failed")
-        self.assertFalse(self.state.begin_update() is False and self.state.update_inflight)
-
-    def test_clear_inflight_allows_a_new_begin_update(self):
-        self.state.mark_update_seen({"version": "1.2.3"})
-        self.state.begin_update()
-        self.state.clear_inflight()
-        self.assertTrue(self.state.begin_update())
+    def test_pas_d_etat_de_mise_a_jour_propre(self):
+        # L'installation d'une mise à jour est conduite par l'Installateur du
+        # commun (nico579_commons.maj_install, testé là-bas) ; l'état partagé
+        # ne porte plus que la pause et l'accès à cet installateur.
+        etat = notifier.SharedState(threading.Event())
+        self.assertIsNone(etat.installateur)
+        self.assertFalse(hasattr(etat, "update_status"))
 
 
 class BuildFeedsFromRowsTests(unittest.TestCase):
@@ -279,7 +266,20 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(data["config"]["feeds"], [])
         self.assertFalse(data["autostart_enabled"])
         self.assertFalse(data["paused"])
-        self.assertEqual(data["update"]["status"], notifier.UPDATE_NONE)
+        self.assertNotIn("update", data)
+
+    def test_api_maj_depuis_les_sources_n_est_pas_installable(self):
+        status, body = self._get("/api/maj")
+        data = json.loads(body)
+        self.assertFalse(data["possible"])
+        self.assertEqual(data["raison"], "source_mode")
+        self.assertEqual(data["etat"]["etat"], "inactif")
+        self.assertIn("{version}", data["libelles"]["disponible"])
+
+    def test_le_bandeau_commun_est_servi(self):
+        status, body = self._get("/nico579-maj.js")
+        self.assertEqual(status, 200)
+        self.assertIn("/api/maj", body.decode("utf-8") if isinstance(body, bytes) else body)
 
     def test_save_config_persists_and_returns_generated_keys(self):
         status, result = self._post("/api/save-config", {
@@ -341,27 +341,17 @@ class HttpApiTests(unittest.TestCase):
         self._post("/api/set-pause", {"paused": False})
         self.assertFalse(self.pause_event.is_set())
 
-    def test_update_install_without_available_update_is_rejected(self):
-        status, result = self._post("/api/update-install", {})
-        self.assertIn("error", result)
+    def test_l_ancienne_route_update_install_n_existe_plus(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._post("/api/update-install", {})
+        self.assertEqual(ctx.exception.code, 404)
 
-    def test_update_install_starts_worker_when_available(self):
-        # Mocker _run_update_worker (la cible du thread), jamais
-        # threading.Thread lui-meme : ce dernier est le MEME objet module
-        # que celui utilise par serveweb/ThreadingHTTPServer pour traiter
-        # chaque requete HTTP - le patcher globalement bloque le serveur
-        # en plein test (constate : timeout sur la reponse HTTP elle-meme).
-        self.state.mark_update_seen({"version": "9.9.9", "page": "https://example.test"})
-        with mock.patch.object(notifier, "_run_update_worker") as worker:
-            status, result = self._post("/api/update-install", {})
-            # Laisse le vrai thread demon demarrer et appeler le worker mocke.
-            for _ in range(50):
-                if worker.called:
-                    break
-                time.sleep(0.02)
-        self.assertTrue(result["ok"])
-        worker.assert_called_once()
-        self.assertEqual(worker.call_args.args[1], "9.9.9")
+    def test_maj_installer_demarre_l_installateur(self):
+        installateur = self.state.installateur
+        with mock.patch.object(installateur, "demarrer", return_value=True) as demarrer:
+            status, result = self._post("/api/maj-installer", {})
+        self.assertEqual(result, {"ok": True})
+        demarrer.assert_called_once()
 
     def test_malformed_path_returns_400_not_a_crash(self):
         # urlparse leve ValueError sur certaines formes manifestement
@@ -446,19 +436,15 @@ class TrayMenuTests(unittest.TestCase):
                                   "Créer un raccourci sur le Bureau"])
 
     def test_stop_event_est_l_arret_de_l_icone(self):
-        # _run_update_worker() leve stop_event une fois le helper pret, sans
+        # L'Installateur leve stop_event une fois l'assistant pret, sans
         # acces a l'icone : c'est l'arret du Tray commun qui la referme (sa
         # veille, testee dans nico579-commons). Sans ce lien, icon.run() ne
         # se debloquait jamais apres une mise a jour installee.
         self.assertIs(self.tray.arret, self.stop_event)
 
     def test_mise_a_jour_affichee_quand_une_version_est_connue(self):
-        self.state.mark_update_seen({"version": "9.9.9"})
-        self.assertIn("Update to 9.9.9", self._labels())
-        # Meme libelle pendant le telechargement : un second clic ouvre la
-        # page, qui montre ou il en est.
-        self.state.begin_update()
-        self.assertIn("Update to 9.9.9", self._labels())
+        with mock.patch.object(notifier, "VERIFICATEUR", FauxVerificateur("9.9.9")):
+            self.assertIn("Update to 9.9.9", self._labels())
 
     def test_ouvrir_ouvre_la_page(self):
         # MenuItem est appelable (__call__(icon) -> action(icon, item)) :
@@ -504,40 +490,31 @@ class TrayActionsTests(unittest.TestCase):
         self.assertEqual(self.journal, ["serveur arrete"])
 
     def test_version_disponible(self):
-        self.assertIsNone(self.actions.version_disponible())
-        self.state.mark_update_seen({"version": "9.9.9"})
-        self.assertEqual(self.actions.version_disponible(), "9.9.9")
+        with mock.patch.object(notifier, "VERIFICATEUR", FauxVerificateur(None)):
+            self.assertIsNone(self.actions.version_disponible())
+        with mock.patch.object(notifier, "VERIFICATEUR", FauxVerificateur("9.9.9")):
+            self.assertEqual(self.actions.version_disponible(), "9.9.9")
 
     def test_mettre_a_jour_installe_quand_c_est_possible(self):
         self.assertFalse(self.actions.mettre_a_jour_referme)
-        self.state.mark_update_seen({"version": "9.9.9"})
-        with mock.patch.object(notifier.self_update, "can_install_automatically",
-                               return_value=(True, "")), \
-                mock.patch.object(notifier, "_run_update_worker") as worker, \
-                mock.patch.object(notifier.webbrowser, "open") as ouvrir:
+        self.state.installateur = FauxInstallateur(possible=True)
+        with mock.patch.object(notifier.webbrowser, "open") as ouvrir:
             self.actions.mettre_a_jour()
-            for _ in range(50):  # le telechargement part sur un fil
-                if worker.called:
-                    break
-                time.sleep(0.02)
-        worker.assert_called_once_with(self.state, "9.9.9", self.stop_event)
+        self.assertEqual(self.state.installateur.demarre, 1)
         ouvrir.assert_not_called()
 
     def test_mettre_a_jour_ouvre_la_page_sinon(self):
-        self.state.mark_update_seen({"version": "9.9.9"})
-        # Installation impossible ici (sources...), puis telechargement deja
-        # en cours : la page dit ou en est la mise a jour.
-        for automatique, en_cours in ((False, False), (True, True)):
-            with self.subTest(automatique=automatique, en_cours=en_cours):
-                if en_cours:
-                    self.assertTrue(self.state.begin_update())
-                with mock.patch.object(notifier.self_update, "can_install_automatically",
-                                       return_value=(automatique, "")), \
-                        mock.patch.object(notifier, "_run_update_worker") as worker, \
-                        mock.patch.object(notifier.webbrowser, "open") as ouvrir:
+        # Installation impossible ici (sources...), telechargement deja en
+        # cours, ou pas d'installateur : la page dit ou en est la mise a jour.
+        cas = ((FauxInstallateur(possible=False), "impossible"),
+               (FauxInstallateur(possible=True, accepte=False), "deja en cours"),
+               (None, "aucun installateur"))
+        for installateur, nom in cas:
+            with self.subTest(cas=nom):
+                self.state.installateur = installateur
+                with mock.patch.object(notifier.webbrowser, "open") as ouvrir:
                     self.actions.mettre_a_jour()
                 ouvrir.assert_called_once_with(self.URL)
-                worker.assert_not_called()
 
     def test_aide_dans_la_page_plus_dans_le_menu(self):
         # L'aide a quitte le menu pour l'en-tete de la page, comme le bouton
