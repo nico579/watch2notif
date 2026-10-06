@@ -9,37 +9,27 @@ le redemarrage echoue.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import platform
 import plistlib
-import re
 import shutil
-import stat
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from nico579_commons import maj_archive
 
 
 MAX_ARCHIVE_SIZE = 1024 * 1024 * 1024
 MAX_EXTRACTED_SIZE = 2 * 1024 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 30_000
-MAX_LINK_SIZE = 4096
-DOWNLOAD_CHUNK_SIZE = 1024 * 1024
-ALLOWED_DOWNLOAD_HOSTS = {
-    "github.com",
-    "objects.githubusercontent.com",
-    "release-assets.githubusercontent.com",
-}
 PRESERVED_NAMES = ("config.json", "state", "watch2notif.log", "notification_history.json")
 
 
@@ -186,292 +176,46 @@ def can_install_automatically() -> tuple[bool, str]:
     return True, ""
 
 
-def _asset_url_is_allowed(url: str, expected_name: str, depot: str) -> bool:
-    parsed = urllib.parse.urlparse(url)
-    expected_prefix = f"/{depot}/releases/download/"
-    return (
-        parsed.scheme == "https"
-        and (parsed.hostname or "").lower() == "github.com"
-        and parsed.path.startswith(expected_prefix)
-        and parsed.path.endswith("/" + urllib.parse.quote(expected_name))
-        and not parsed.username
-        and not parsed.password
-        and not parsed.query
-        and not parsed.fragment
-    )
+def _en_update_error(erreur) -> "UpdateError":
+    """Un refus de nico579_commons.maj_archive devient l'UpdateError que
+    l'interface sait afficher : le même code grossier qu'avant (invalid_asset,
+    integrity_failed, download_failed, unsafe_archive), le détail en clair."""
+    code = "missing_asset" if erreur.code == "asset_absent" else erreur.categorie
+    return UpdateError(code, erreur.message("fr"))
 
 
 def select_asset(info: dict, layout: InstallLayout, depot: str) -> dict:
-    assets = [asset for asset in info.get("assets", []) if asset.get("name") == layout.asset_name]
-    if len(assets) != 1:
-        raise UpdateError("missing_asset", layout.asset_name)
-
-    asset = dict(assets[0])
-    if asset.get("state") != "uploaded":
-        raise UpdateError("invalid_asset", f"etat de l'asset: {asset.get('state')!r}")
-
+    """L'unique fichier de release de ce nom, finalisé, avec taille, empreinte
+    SHA-256 et URL du dépôt officiel (nico579_commons.maj_archive)."""
     try:
-        size = int(asset.get("size"))
-    except (TypeError, ValueError):
-        size = 0
-    if not 0 < size <= MAX_ARCHIVE_SIZE:
-        raise UpdateError("invalid_asset", f"taille invalide: {size}")
-
-    digest = str(asset.get("digest") or "").lower()
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-        raise UpdateError("invalid_asset", "empreinte SHA-256 absente ou invalide")
-
-    url = str(asset.get("browser_download_url") or "")
-    if not _asset_url_is_allowed(url, layout.asset_name, depot):
-        raise UpdateError("invalid_asset", "URL de telechargement inattendue")
-
-    asset["size"] = size
-    asset["digest"] = digest
-    asset["browser_download_url"] = url
-    return asset
-
-
-def _redirect_url_is_allowed(url: str) -> bool:
-    parsed = urllib.parse.urlparse(url)
-    host = (parsed.hostname or "").lower()
-    return parsed.scheme == "https" and (
-        host in ALLOWED_DOWNLOAD_HOSTS or host.endswith(".githubusercontent.com")
-    )
+        return maj_archive.choisir_asset(
+            info.get("assets"), layout.asset_name, depot, taille_max=MAX_ARCHIVE_SIZE)
+    except maj_archive.ErreurMiseAJour as erreur:
+        raise _en_update_error(erreur) from erreur
 
 
 def download_asset(asset: dict, destination: Path, opener=urllib.request.urlopen) -> None:
     """Telecharge vers .part, puis publie seulement apres taille et SHA-256."""
-    partial = destination.with_suffix(destination.suffix + ".part")
-    digest = hashlib.sha256()
-    received = 0
-    stream_completed = False
-    request = urllib.request.Request(
-        asset["browser_download_url"],
-        headers={"Accept": "application/octet-stream", "User-Agent": "watch2notif-updater"},
-    )
+    # Le dépôt est celui de l'URL, déjà liée au dépôt attendu par select_asset().
+    morceaux = urllib.parse.urlparse(asset["browser_download_url"]).path.split("/")
     try:
-        with opener(request, timeout=30) as response:
-            final_url = getattr(response, "geturl", lambda: asset["browser_download_url"])()
-            if not _redirect_url_is_allowed(final_url):
-                raise UpdateError("invalid_asset", "redirection de telechargement inattendue")
-            content_length = response.headers.get("Content-Length") if getattr(response, "headers", None) else None
-            if content_length is not None and int(content_length) != asset["size"]:
-                raise UpdateError("integrity_failed", "taille HTTP differente de la release")
-
-            with partial.open("xb") as output:
-                while True:
-                    chunk = response.read(DOWNLOAD_CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    received += len(chunk)
-                    if received > asset["size"] or received > MAX_ARCHIVE_SIZE:
-                        raise UpdateError("integrity_failed", "telechargement plus grand qu'annonce")
-                    output.write(chunk)
-                    digest.update(chunk)
-                stream_completed = True
-    except UpdateError:
-        raise
-    except (OSError, urllib.error.URLError, ValueError) as exc:
-        raise UpdateError("download_failed", str(exc)) from exc
-    finally:
-        if partial.exists() and not stream_completed:
-            partial.unlink(missing_ok=True)
-
-    expected_digest = asset["digest"].split(":", 1)[1]
-    if received != asset["size"]:
-        partial.unlink(missing_ok=True)
-        raise UpdateError("integrity_failed", f"{received} octets recus, {asset['size']} attendus")
-    if digest.hexdigest() != expected_digest:
-        partial.unlink(missing_ok=True)
-        raise UpdateError("integrity_failed", "empreinte SHA-256 differente")
-    os.replace(partial, destination)
-
-
-def _member_parts(name: str) -> tuple[tuple[str, ...], bool]:
-    if not isinstance(name, str) or not name or "\x00" in name or len(name) > 4096:
-        raise UpdateError("unsafe_archive", "nom de membre invalide")
-    normalized = name.replace("\\", "/")
-    is_directory = normalized.endswith("/")
-    if is_directory:
-        normalized = normalized[:-1]
-    if not normalized or normalized.startswith("/") or normalized.startswith("//"):
-        raise UpdateError("unsafe_archive", name)
-    if re.match(r"^[A-Za-z]:", normalized):
-        raise UpdateError("unsafe_archive", name)
-    parts = tuple(normalized.split("/"))
-    if any(not part or part in {".", ".."} or ":" in part for part in parts):
-        raise UpdateError("unsafe_archive", name)
-    return parts, is_directory
-
-
-def _validate_member_set(entries: list[tuple[str, tuple[str, ...]]], expected_root: str) -> None:
-    if len(entries) > MAX_ARCHIVE_MEMBERS:
-        raise UpdateError("unsafe_archive", "archive trop volumineuse")
-    seen: set[str] = set()
-    for name, parts in entries:
-        if not parts or parts[0] != expected_root:
-            raise UpdateError("unsafe_archive", f"racine inattendue: {name}")
-        folded = "/".join(parts).casefold()
-        if folded in seen:
-            raise UpdateError("unsafe_archive", f"membre duplique: {name}")
-        seen.add(folded)
-
-
-def _ensure_no_symlink_parent(root: Path, parts: tuple[str, ...]) -> Path:
-    current = root
-    for part in parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise UpdateError("unsafe_archive", f"ecriture sous un lien: {'/'.join(parts)}")
-    return root.joinpath(*parts)
-
-
-def _validate_symlink_target(member_parts: tuple[str, ...], target: str, expected_root: str) -> None:
-    if not target or "\x00" in target or "\\" in target or target.startswith("/"):
-        raise UpdateError("unsafe_archive", f"lien invalide: {target!r}")
-    if re.match(r"^[A-Za-z]:", target):
-        raise UpdateError("unsafe_archive", f"lien invalide: {target!r}")
-    resolved = list(member_parts[:-1])
-    for part in target.split("/"):
-        if part in {"", "."}:
-            continue
-        if part == "..":
-            if len(resolved) <= 1:
-                raise UpdateError("unsafe_archive", f"lien sortant: {target!r}")
-            resolved.pop()
-        else:
-            if ":" in part:
-                raise UpdateError("unsafe_archive", f"lien invalide: {target!r}")
-            resolved.append(part)
-    if not resolved or resolved[0] != expected_root:
-        raise UpdateError("unsafe_archive", f"lien sortant: {target!r}")
-
-
-def _copy_limited(source, destination, expected_size: int) -> None:
-    copied = 0
-    while True:
-        chunk = source.read(DOWNLOAD_CHUNK_SIZE)
-        if not chunk:
-            break
-        copied += len(chunk)
-        if copied > expected_size:
-            raise UpdateError("unsafe_archive", "membre plus grand qu'annonce")
-        destination.write(chunk)
-    if copied != expected_size:
-        raise UpdateError("unsafe_archive", "membre tronque")
-
-
-def _extract_zip(archive: Path, destination: Path, expected_root: str) -> None:
-    try:
-        with zipfile.ZipFile(archive) as zipped:
-            infos = zipped.infolist()
-            entries = [(info.filename, _member_parts(info.filename)[0]) for info in infos]
-            _validate_member_set(entries, expected_root)
-            total = sum(info.file_size for info in infos)
-            if total > MAX_EXTRACTED_SIZE:
-                raise UpdateError("unsafe_archive", "contenu decompresse trop volumineux")
-
-            for info in infos:
-                parts, name_says_directory = _member_parts(info.filename)
-                mode = (info.external_attr >> 16) & 0xFFFF
-                file_type = stat.S_IFMT(mode)
-                is_link = file_type == stat.S_IFLNK
-                is_directory = name_says_directory or info.is_dir() or file_type == stat.S_IFDIR
-                if info.flag_bits & 0x1:
-                    raise UpdateError("unsafe_archive", "archive chiffree")
-                if file_type not in {0, stat.S_IFREG, stat.S_IFDIR, stat.S_IFLNK}:
-                    raise UpdateError("unsafe_archive", f"type de membre interdit: {info.filename}")
-                destination_path = _ensure_no_symlink_parent(destination, parts)
-
-                if is_directory:
-                    destination_path.mkdir(parents=True, exist_ok=True)
-                    continue
-                destination_path.parent.mkdir(parents=True, exist_ok=True)
-                if is_link:
-                    if info.file_size > MAX_LINK_SIZE or os.name == "nt":
-                        raise UpdateError("unsafe_archive", f"lien non supporte: {info.filename}")
-                    target = zipped.read(info).decode("utf-8")
-                    _validate_symlink_target(parts, target, expected_root)
-                    os.symlink(target, destination_path)
-                    continue
-
-                with zipped.open(info) as source, destination_path.open("xb") as output:
-                    _copy_limited(source, output, info.file_size)
-                if os.name != "nt" and mode:
-                    destination_path.chmod(mode & 0o777)
-    except UpdateError:
-        raise
-    except (OSError, UnicodeError, zipfile.BadZipFile) as exc:
-        raise UpdateError("unsafe_archive", str(exc)) from exc
-
-
-def _extract_tar(archive: Path, destination: Path, expected_root: str) -> None:
-    try:
-        with tarfile.open(archive, mode="r:gz") as tar:
-            members = tar.getmembers()
-            entries = [(member.name, _member_parts(member.name)[0]) for member in members]
-            _validate_member_set(entries, expected_root)
-            total = sum(member.size for member in members if member.isfile())
-            if total > MAX_EXTRACTED_SIZE:
-                raise UpdateError("unsafe_archive", "contenu decompresse trop volumineux")
-
-            hardlinks = []
-            for member in members:
-                parts, _ = _member_parts(member.name)
-                destination_path = _ensure_no_symlink_parent(destination, parts)
-                if member.isdir():
-                    destination_path.mkdir(parents=True, exist_ok=True)
-                    if os.name != "nt":
-                        destination_path.chmod(member.mode & 0o777)
-                elif member.isfile():
-                    destination_path.parent.mkdir(parents=True, exist_ok=True)
-                    source = tar.extractfile(member)
-                    if source is None:
-                        raise UpdateError("unsafe_archive", f"membre illisible: {member.name}")
-                    with source, destination_path.open("xb") as output:
-                        _copy_limited(source, output, member.size)
-                    if os.name != "nt":
-                        destination_path.chmod(member.mode & 0o777)
-                elif member.issym():
-                    if os.name == "nt":
-                        raise UpdateError("unsafe_archive", f"lien non supporte: {member.name}")
-                    _validate_symlink_target(parts, member.linkname, expected_root)
-                    destination_path.parent.mkdir(parents=True, exist_ok=True)
-                    os.symlink(member.linkname, destination_path)
-                elif member.islnk():
-                    hardlinks.append((member, parts, destination_path))
-                else:
-                    raise UpdateError("unsafe_archive", f"type de membre interdit: {member.name}")
-
-            for member, parts, destination_path in hardlinks:
-                target_parts, _ = _member_parts(member.linkname)
-                if target_parts[0] != expected_root:
-                    raise UpdateError("unsafe_archive", f"hardlink sortant: {member.linkname}")
-                target_path = _ensure_no_symlink_parent(destination, target_parts)
-                if not target_path.is_file() or target_path.is_symlink():
-                    raise UpdateError("unsafe_archive", f"cible de hardlink invalide: {member.linkname}")
-                destination_path.parent.mkdir(parents=True, exist_ok=True)
-                os.link(target_path, destination_path)
-    except UpdateError:
-        raise
-    except (OSError, tarfile.TarError) as exc:
-        raise UpdateError("unsafe_archive", str(exc)) from exc
+        maj_archive.telecharger(
+            asset["browser_download_url"], destination, asset["size"], asset["digest"],
+            depot="/".join(morceaux[1:3]), agent="watch2notif-updater",
+            nom=asset["name"], ouvrir=opener, taille_max=MAX_ARCHIVE_SIZE, delai_s=30)
+    except maj_archive.ErreurMiseAJour as erreur:
+        raise _en_update_error(erreur) from erreur
 
 
 def extract_archive(archive: Path, destination: Path, layout: InstallLayout) -> Path:
-    destination.mkdir(parents=True, exist_ok=False)
-    if layout.archive_kind == "zip":
-        _extract_zip(archive, destination, layout.expected_root)
-    elif layout.archive_kind == "tar":
-        _extract_tar(archive, destination, layout.expected_root)
-    else:
-        raise UpdateError("unsafe_archive", f"format inconnu: {layout.archive_kind}")
-
-    children = list(destination.iterdir())
-    payload = destination / layout.expected_root
-    if len(children) != 1 or children[0].name != layout.expected_root or not payload.is_dir() or payload.is_symlink():
-        raise UpdateError("unsafe_archive", "racine du bundle invalide")
-    return payload
+    """Déballe l'archive sans rien écrire hors de `destination` et rend le
+    dossier du bundle (nico579_commons.maj_archive)."""
+    try:
+        return maj_archive.extraire(
+            archive, destination, racine=layout.expected_root,
+            taille_max=MAX_EXTRACTED_SIZE, membres_max=MAX_ARCHIVE_MEMBERS)
+    except maj_archive.ErreurMiseAJour as erreur:
+        raise _en_update_error(erreur) from erreur
 
 
 def _validate_payload(payload: Path, layout: InstallLayout) -> Path:
