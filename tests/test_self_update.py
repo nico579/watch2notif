@@ -1,7 +1,5 @@
 import hashlib
 import io
-import stat
-import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -153,43 +151,11 @@ class TargetTests(unittest.TestCase):
                 )
 
 
-class AssetTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
-        self.layout = make_layout(self.root)
-        self.data = b"archive"
-        self.asset = asset_for(self.layout, self.data)
+class PrepareTests(unittest.TestCase):
+    """Le choix du fichier de release, le téléchargement et l'extraction sont
+    testés dans nico579_commons (maj_archive) ; ici, ce que watch2notif y
+    ajoute : sa disposition d'installation et la préparation de bout en bout."""
 
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def test_selects_one_uploaded_asset_with_size_digest_and_repo_url(self):
-        selected = self_update.select_asset({"assets": [self.asset]}, self.layout, DEPOT)
-        self.assertEqual(selected["name"], self.layout.asset_name)
-
-    def test_rejects_missing_or_duplicate_asset(self):
-        with self.assertRaises(self_update.UpdateError):
-            self_update.select_asset({"assets": []}, self.layout, DEPOT)
-        with self.assertRaises(self_update.UpdateError):
-            self_update.select_asset({"assets": [self.asset, self.asset]}, self.layout, DEPOT)
-
-    def test_rejects_bad_digest_size_state_and_url(self):
-        mutations = (
-            {"digest": None},
-            {"size": 0},
-            {"state": "new"},
-            {"browser_download_url": "http://example.test/update.zip"},
-            {"browser_download_url": f"https://github.com/other/repo/releases/download/v1/{self.layout.asset_name}"},
-        )
-        for mutation in mutations:
-            with self.subTest(mutation=mutation):
-                bad = {**self.asset, **mutation}
-                with self.assertRaises(self_update.UpdateError):
-                    self_update.select_asset({"assets": [bad]}, self.layout, DEPOT)
-
-
-class DownloadTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -197,107 +163,6 @@ class DownloadTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
-
-    def test_download_is_published_only_after_integrity_checks(self):
-        data = b"verified bytes"
-        asset = asset_for(self.layout, data)
-        destination = self.root / "update.zip"
-        self_update.download_asset(
-            asset,
-            destination,
-            opener=lambda *_args, **_kwargs: FakeResponse(data, asset["browser_download_url"]),
-        )
-        self.assertEqual(destination.read_bytes(), data)
-        self.assertFalse((self.root / "update.zip.part").exists())
-
-    def test_bad_digest_or_truncated_download_is_removed(self):
-        data = b"expected"
-        for received in (b"modified", b"short"):
-            destination = self.root / f"bad-{len(received)}.zip"
-            asset = asset_for(self.layout, data)
-            response = FakeResponse(received, asset["browser_download_url"])
-            response.headers = {}
-            with self.assertRaises(self_update.UpdateError):
-                self_update.download_asset(
-                    asset,
-                    destination,
-                    opener=lambda *_args, response=response, **_kwargs: response,
-                )
-            self.assertFalse(destination.exists())
-            self.assertFalse(destination.with_suffix(".zip.part").exists())
-
-    def test_redirect_must_stay_on_https_github_hosts(self):
-        data = b"expected"
-        asset = asset_for(self.layout, data)
-        destination = self.root / "redirect.zip"
-        with self.assertRaises(self_update.UpdateError):
-            self_update.download_asset(
-                asset,
-                destination,
-                opener=lambda *_args, **_kwargs: FakeResponse(data, "https://evil.example/update.zip"),
-            )
-
-
-class ArchiveTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
-        self.layout = make_layout(self.root)
-
-    def tearDown(self):
-        self.temporary.cleanup()
-
-    def _write_zip(self, name: str, members: dict[str, bytes]) -> Path:
-        archive = self.root / name
-        with zipfile.ZipFile(archive, "w") as zipped:
-            for member, contents in members.items():
-                zipped.writestr(member, contents)
-        return archive
-
-    def test_valid_zip_extracts_expected_single_root(self):
-        archive = self._write_zip(
-            "valid.zip",
-            {
-                "watch2notif/watch2notif.exe": b"exe",
-                "watch2notif/_internal/library.dat": b"library",
-            },
-        )
-        payload = self_update.extract_archive(archive, self.root / "out", self.layout)
-        self.assertEqual((payload / "watch2notif.exe").read_bytes(), b"exe")
-
-    def test_zip_rejects_traversal_absolute_backslash_and_extra_root(self):
-        cases = (
-            {"../escape": b"x"},
-            {"/absolute": b"x"},
-            {"watch2notif\\..\\escape": b"x"},
-            {"another-root/file": b"x"},
-        )
-        for index, members in enumerate(cases):
-            with self.subTest(members=members):
-                archive = self._write_zip(f"bad-{index}.zip", members)
-                with self.assertRaises(self_update.UpdateError):
-                    self_update.extract_archive(archive, self.root / f"out-{index}", self.layout)
-
-    def test_zip_rejects_escaping_symlink(self):
-        archive = self.root / "link.zip"
-        with zipfile.ZipFile(archive, "w") as zipped:
-            info = zipfile.ZipInfo("watch2notif/link")
-            info.create_system = 3
-            info.external_attr = (stat.S_IFLNK | 0o777) << 16
-            zipped.writestr(info, "../../escape")
-        with self.assertRaises(self_update.UpdateError):
-            self_update.extract_archive(archive, self.root / "link-out", self.layout)
-
-    def test_tar_rejects_traversal(self):
-        layout = make_layout(self.root / "tar-parent", system="Linux", archive_kind="tar")
-        archive = self.root / "bad.tar.gz"
-        contents = b"escape"
-        with tarfile.open(archive, "w:gz") as tar:
-            info = tarfile.TarInfo("../escape")
-            info.size = len(contents)
-            tar.addfile(info, io.BytesIO(contents))
-        with self.assertRaises(self_update.UpdateError):
-            self_update.extract_archive(archive, self.root / "tar-out", layout)
 
     def test_prepare_update_leaves_current_install_untouched(self):
         current_marker = self.layout.install_root / "old.txt"
