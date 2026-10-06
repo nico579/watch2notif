@@ -51,7 +51,7 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source = ajouter un module ici, rien d'autre ne
   change.
-- `gui/` + `_serve_web.py` : page de reglages/historique (ajouter/retirer
+- `gui/` + `nico579_commons.serveweb` : page de reglages/historique (ajouter/retirer
   des sources, choisir leur type, regler leur intervalle de polling
   individuel, activer l'autostart, parcourir les 200 dernieres
   notifications envoyees, double-clic sur une ligne pour rouvrir son

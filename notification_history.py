@@ -6,7 +6,7 @@ import threading
 import time
 
 import data_paths
-import json_store
+from nico579_commons import atomique
 
 HISTORY_FILE = data_paths.DATA_DIR / "notification_history.json"
 MAX_ENTRIES = 200
@@ -24,14 +24,14 @@ def load() -> list:
     """Historique pour l'affichage : liste vide si absent, corrompu ou
     illisible. Rien n'est reecrit a partir d'ici (cf. append)."""
     try:
-        data = json_store.read_json(HISTORY_FILE, [])
+        data = atomique.lire_json(HISTORY_FILE, [])
     except OSError:
         return []
     return data if isinstance(data, list) else []
 
 
 def _save(entries: list) -> None:
-    json_store.write_json_atomic(HISTORY_FILE, entries, indent=2)
+    atomique.ecrire_json(HISTORY_FILE, entries, indent=2)
 
 
 def append(feed_label: str, title: str, author: str, summary: str, link: str) -> None:
@@ -40,11 +40,11 @@ def append(feed_label: str, title: str, author: str, summary: str, link: str) ->
     notification est deja partie."""
     with _lock:
         try:
-            # read_json, pas load() : un historique present mais illisible
+            # lire_json, pas load() : un historique present mais illisible
             # (refus Windows qui persiste) leve au lieu de rendre [], sinon
             # la reecriture ci-dessous l'effacait en ne gardant que cette
             # entree (constate le 2026-09-24).
-            entries = json_store.read_json(HISTORY_FILE, [])
+            entries = atomique.lire_json(HISTORY_FILE, [])
             if not isinstance(entries, list):
                 entries = []
             entries.insert(0, {
