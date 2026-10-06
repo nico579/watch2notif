@@ -28,7 +28,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from nico579_commons import atomique, environnement, maj, raccourci, relance, serveweb
+from nico579_commons import atomique, environnement, maj, maj_install, raccourci, relance, serveweb
 from nico579_commons import tray as apptray
 
 import autostart_manager
@@ -494,12 +494,6 @@ def poll_feed(feed: dict) -> None:
         print(f"[{label}] {sent} nouvelle(s) notif(s) envoyee(s).")
 
 
-UPDATE_NONE = "none"
-UPDATE_AVAILABLE = "available"
-UPDATE_PREPARING = "preparing"
-UPDATE_FAILED = "failed"
-
-
 class SharedState:
     """Etat partage entre poll_loop (thread de fond), le serveur HTTP (un
     thread par requete) et le tray (thread principal), protege par un
@@ -511,60 +505,10 @@ class SharedState:
     def __init__(self, pause_event: threading.Event):
         self._lock = threading.Lock()
         self.pause_event = pause_event
-        self.update_status = UPDATE_NONE
-        self.update_info: dict | None = None
-        self.update_error: dict | None = None
-        self.update_inflight = False
-
-    def update_snapshot(self) -> dict:
-        with self._lock:
-            return {
-                "status": self.update_status,
-                "info": dict(self.update_info) if self.update_info else None,
-                "error": dict(self.update_error) if self.update_error else None,
-            }
-
-    def update_info_snapshot(self) -> dict | None:
-        with self._lock:
-            return dict(self.update_info) if self.update_info else None
-
-    def mark_update_seen(self, info: dict | None) -> None:
-        """Appele par poll_loop a chaque cycle avec le resultat de
-        VERIFICATEUR.disponible(). Ne perd jamais l'etat d'un
-        telechargement deja en cours si un check concurrent revient
-        temporairement vide (meme garde que l'ancien _on_update_available)."""
-        with self._lock:
-            if not info:
-                if not self.update_inflight:
-                    self.update_info = None
-                    self.update_status = UPDATE_NONE
-                return
-            self.update_info = dict(info)
-            if not self.update_inflight:
-                self.update_status = UPDATE_AVAILABLE
-
-    def begin_update(self) -> bool:
-        """Vrai (et passe en PREPARING) si rien n'est deja en cours et
-        qu'une version est bien connue - le worker ne doit alors demarrer
-        qu'une fois, meme si l'utilisateur clique deux fois vite sur le
-        bouton Installer."""
-        with self._lock:
-            if not self.update_info or self.update_inflight:
-                return False
-            self.update_inflight = True
-            self.update_status = UPDATE_PREPARING
-            self.update_error = None
-            return True
-
-    def mark_update_failed(self, error: dict) -> None:
-        with self._lock:
-            self.update_inflight = False
-            self.update_status = UPDATE_FAILED
-            self.update_error = dict(error)
-
-    def clear_inflight(self) -> None:
-        with self._lock:
-            self.update_inflight = False
+        # L'installation d'une mise à jour est conduite par l'Installateur
+        # du commun (nico579_commons.maj_install), créé avec les routes :
+        # build_api_routes() le pose ici pour le menu de l'icône.
+        self.installateur = None
 
 
 def poll_loop(state: SharedState) -> None:
@@ -610,7 +554,6 @@ def poll_loop(state: SharedState) -> None:
                     next_due[key] = now + interval
 
             info = VERIFICATEUR.disponible()
-            state.mark_update_seen(info)
             if info and info["version"] != notified_version:
                 notified_version = info["version"]
                 notify_backend.notify(
@@ -625,56 +568,15 @@ def poll_loop(state: SharedState) -> None:
         time.sleep(5)
 
 
-def _run_update_worker(state: SharedState, expected_version: str, stop_event: threading.Event) -> None:
-    """Telecharge, verifie et installe la mise a jour vers expected_version,
-    puis demande l'arret du process (stop_event) pour laisser le helper
-    externe (self_update.launch_prepared_update) prendre le relais. Meme
-    sequence en 3 etapes (prepare, launch, commit) et meme nettoyage par
-    etape que l'ancien TrayApp._prepare_update_worker/_on_update_prepared/
-    _on_update_failed - seule la frontiere de thread Qt disparait, plus
-    besoin d'y repasser la main pour agir sur le resultat."""
-    try:
-        VERIFICATEUR.verifier()
-        latest = VERIFICATEUR.disponible()
-        if not latest:
-            raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
-        if latest.get("version") != expected_version:
-            # Une version plus recente encore est apparue entre le clic et
-            # ce cycle : redevient "disponible" avec la nouvelle cible,
-            # l'utilisateur reclique s'il veut l'installer (pas de dialogue
-            # a rouvrir automatiquement, la page web reflete l'etat au
-            # prochain rafraichissement).
-            state.mark_update_seen(latest)
-            state.clear_inflight()
-            return
-        prepared = self_update.prepare_update(latest, update_check.DEPOT)
-    except self_update.UpdateError as exc:
-        state.mark_update_failed(exc.payload())
-        return
-    except Exception as exc:
-        state.mark_update_failed({"code": "prepare_failed", "detail": str(exc)})
-        return
-
-    try:
-        self_update.launch_prepared_update(prepared)
-    except self_update.UpdateError as exc:
-        self_update.cleanup_prepared(prepared)
-        state.mark_update_failed(exc.payload())
-        return
-    except Exception as exc:
-        self_update.cleanup_prepared(prepared)
-        state.mark_update_failed({"code": "prepare_failed", "detail": str(exc)})
-        return
-
-    try:
-        self_update.commit_prepared_update(prepared)
-    except self_update.UpdateError as exc:
-        self_update.abort_prepared_update(prepared)
-        state.mark_update_failed(exc.payload())
-        return
-
-    print(f"mise a jour {expected_version} installee, arret pour laisser la main au helper.")
-    stop_event.set()
+def _installateur(stop_event: threading.Event):
+    """L'installation automatique d'une version plus récente, conduite en fond
+    (nico579_commons.maj_install) : rafraîchir la release, préparer, lancer
+    l'assistant externe, lui donner le feu vert, puis lever stop_event, qui
+    referme l'icône et rend la main à main() pour laisser l'assistant échanger
+    les dossiers."""
+    return maj_install.Installateur(
+        self_update.APP, update_check.DEPOT, VERIFICATEUR, self_update.install_layout,
+        quitter=stop_event.set)
 
 
 def _tray_disponible() -> bool:
@@ -700,22 +602,20 @@ def _actions_tray(url: str, state: SharedState, stop_event: threading.Event,
     historique et aide sont dans la page qu'ouvre Ouvrir."""
 
     def _version_disponible():
-        info = state.update_snapshot()["info"]
+        info = VERIFICATEUR.disponible()
         return info["version"] if info else None
 
     def _mettre_a_jour() -> None:
         # Installation directe quand elle est possible, meme chemin que le
-        # bouton de la page ; l'icone reste pendant le telechargement, et
-        # _run_update_worker leve stop_event une fois le helper pret. Sinon
+        # bandeau de la page ; l'icone reste pendant le telechargement, et
+        # l'Installateur leve stop_event une fois l'assistant pret. Sinon
         # (sources, dossier non inscriptible...), ou si un telechargement
         # est deja en cours, la page dit ou en est la mise a jour.
-        automatic, _reason = self_update.can_install_automatically()
-        if automatic and state.begin_update():
-            info = state.update_info_snapshot()
-            threading.Thread(target=_run_update_worker,
-                             args=(state, info["version"], stop_event), daemon=True).start()
-        else:
-            webbrowser.open(url)
+        installateur = state.installateur
+        if (installateur is not None and installateur.possible()[0]
+                and installateur.demarrer()):
+            return
+        webbrowser.open(url)
 
     def _redemarrer() -> None:
         # Port et verrou liberes avant la relance : le nouveau process
@@ -749,9 +649,8 @@ def _construire_tray(url: str, state: SharedState, stop_event: threading.Event,
     reconstruit toutes les 5 s (le backend win32 de pystray garderait
     sinon celui du demarrage), sur le fil principal sous macOS, actions
     d'arret hors de la pompe de messages. stop_event sert d'arret :
-    Arreter, Redemarrer, et la fin d'une mise a jour installee
-    (_run_update_worker, qui n'a pas acces a l'icone) referment l'icone
-    et rendent la main a main()."""
+    Arreter, Redemarrer, et la fin d'une mise a jour installee (l'Installateur,
+    qui n'a pas acces a l'icone) referment l'icone et rendent la main a main()."""
     return apptray.Tray("watch2notif", ICON_FILE,
                         _actions_tray(url, state, stop_event, arreter_serveur),
                         arret=stop_event)
@@ -767,7 +666,6 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         return i18n.STRINGS
 
     def _api_state() -> dict:
-        automatic, reason = self_update.can_install_automatically()
         return {
             "version": update_check.VERSION,
             # Affiches en tete de page, comme blink2video : quelle version
@@ -784,11 +682,6 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
             "default_kind": DEFAULT_KIND,
             "autostart_enabled": autostart_manager.is_enabled(),
             "paused": pause_event.is_set(),
-            "update": {
-                **state.update_snapshot(),
-                "can_install_automatically": automatic,
-                "reason": reason,
-            },
         }
 
     def _api_history() -> dict:
@@ -833,21 +726,19 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         notification_history.clear()
         return {"ok": True}
 
-    def _api_update_install(_payload: dict) -> dict:
-        if not state.begin_update():
-            return {"error": "aucune mise a jour disponible ou deja en cours"}
-        info = state.update_info_snapshot()
-        threading.Thread(
-            target=_run_update_worker, args=(state, info["version"], stop_event), daemon=True,
-        ).start()
-        return {"ok": True}
+    # Le bandeau de mise a jour de la page est celui du commun
+    # (nico579_commons.maj_install.routes, maj_banniere.js) : /api/maj et
+    # /api/maj-installer.
+    state.installateur = _installateur(stop_event)
+    routes_maj_get, routes_maj_post = maj_install.routes(state.installateur, _langue_tray)
 
-    api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history}
+    api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history,
+                  **routes_maj_get}
     post_routes = {
         "save-config": _api_save_config,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
-        "update-install": _api_update_install,
+        **routes_maj_post,
     }
     return api_routes, post_routes
 

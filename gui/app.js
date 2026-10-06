@@ -11,7 +11,6 @@ const api = {
   saveConfig: (payload) => _post('/api/save-config', payload),
   setPause: (paused) => _post('/api/set-pause', { paused }),
   clearHistory: () => _post('/api/clear-history', {}),
-  updateInstall: () => _post('/api/update-install', {}),
 };
 
 function _post(route, payload) {
@@ -47,7 +46,6 @@ function applyLanguage() {
     btn.classList.toggle('active', btn.dataset.lang === lang);
   });
   renderFeedKindOptions();
-  renderUpdateBanner(lastUpdateState);
   renderServerInfo();
 }
 
@@ -64,7 +62,6 @@ function renderServerInfo() {
 
 let providers = {};
 let defaultKind = 'rss';
-let lastUpdateState = null;
 let feedKeySeq = 0;
 
 // --- table des sources ----------------------------------------------------
@@ -209,67 +206,6 @@ function renderHistory(entries) {
   }
 }
 
-// --- bandeau de mise a jour ---------------------------------------------
-
-const UPDATE_ERROR_KEYS = {
-  download_failed: 'update_error_download',
-  integrity_failed: 'update_error_integrity',
-  unsafe_archive: 'update_error_integrity',
-  invalid_payload: 'update_error_integrity',
-  unsupported_target: 'update_error_compatibility',
-  missing_asset: 'update_error_compatibility',
-  invalid_asset: 'update_error_compatibility',
-  source_mode: 'update_error_compatibility',
-  helper_failed: 'update_error_installer',
-  unsafe_install: 'update_error_installer',
-};
-
-function renderUpdateBanner(update) {
-  lastUpdateState = update;
-  const banner = document.getElementById('update-banner');
-  const text = document.getElementById('update-text');
-  const installBtn = document.getElementById('update-install-btn');
-  const releaseLink = document.getElementById('update-release-link');
-
-  if (!update || !update.info) {
-    banner.hidden = true;
-    return;
-  }
-  banner.hidden = false;
-  const version = update.info.version;
-
-  if (update.status === 'preparing') {
-    text.textContent = t('tray_update_downloading', { version });
-    text.classList.remove('error-text');
-    installBtn.hidden = true;
-    releaseLink.hidden = true;
-    return;
-  }
-
-  if (update.status === 'failed' && update.error) {
-    const key = UPDATE_ERROR_KEYS[update.error.code] || 'update_error_generic';
-    text.textContent = t('update_error_body', { error: t(key) });
-    text.classList.add('error-text');
-  } else {
-    text.textContent = t('tray_update_available', { version });
-    text.classList.remove('error-text');
-  }
-
-  if (update.can_install_automatically) {
-    installBtn.hidden = false;
-    installBtn.disabled = false;
-    installBtn.textContent = update.status === 'failed'
-      ? t('tray_update_retry', { version })
-      : t('update_install_button');
-    releaseLink.hidden = true;
-  } else {
-    installBtn.hidden = true;
-    releaseLink.hidden = false;
-    releaseLink.href = update.info.page || '#';
-    releaseLink.textContent = t('update_open_release_button');
-  }
-}
-
 // --- sauvegarde ---------------------------------------------------------
 
 async function saveConfig() {
@@ -301,50 +237,24 @@ async function saveConfig() {
   status.textContent = t('ok_msg');
 }
 
-// --- rafraichissement periodique (pause/maj, jamais la table de sources) ---
-
-let reconnecting = false;
+// --- rafraichissement periodique (pause et demarrage automatique, jamais la
+// table de sources) ; le bandeau de mise a jour est celui du commun
+// (/nico579-maj.js), qui se recharge seul apres le redemarrage ---
 
 async function refreshState() {
-  const wasReconnecting = reconnecting;
   try {
     const state = await api.state();
-    if (wasReconnecting) {
-      // Le nouveau process (relance par le helper de mise a jour) repond a
-      // nouveau : on repart d'une page neuve plutot que de tenter de
-      // reconcilier tout l'etat en memoire avec la version fraichement
-      // installee.
-      location.reload();
-      return;
-    }
     document.getElementById('pause-check').checked = state.paused;
     document.getElementById('autostart-check').checked = state.autostart_enabled;
-    renderUpdateBanner(state.update);
   } catch (exc) {
-    // Le serveur s'arrete pendant l'etape finale d'une mise a jour (le
-    // helper externe prend le relais) : meme modele que blink2video
-    // (bouton "Mettre a jour" de la page web), qui attend simplement le
-    // retour du serveur plutot que de suivre une progression detaillee.
-    if (lastUpdateState && lastUpdateState.status === 'preparing') {
-      reconnecting = true;
-      document.getElementById('update-text').textContent = t('update_progress_body', {
-        version: lastUpdateState.info.version,
-      });
-    }
+    // Serveur momentanement injoignable (redemarrage) : on reessaie au tick suivant.
   }
 }
 
-document.getElementById('update-install-btn').addEventListener('click', async () => {
-  document.getElementById('update-install-btn').disabled = true;
-  await api.updateInstall();
-  refreshState();
-});
-
 function scheduleRefresh() {
-  // setTimeout recursif, pas setInterval : le delai doit refleter l'etat
-  // COURANT de reconnecting a chaque tick (setInterval figerait le premier
-  // delai pour toujours, jamais reevalue).
-  setTimeout(() => { refreshState().then(scheduleRefresh); }, reconnecting ? 2000 : 4000);
+  // setTimeout recursif, pas setInterval : un tick lent ne doit pas se
+  // chevaucher avec le suivant.
+  setTimeout(() => { refreshState().then(scheduleRefresh); }, 4000);
 }
 scheduleRefresh();
 
@@ -394,7 +304,6 @@ document.getElementById('history-clear-btn').addEventListener('click', async () 
   document.getElementById('pause-check').checked = state.paused;
   renderFeedsTable(state.config.feeds || []);
   applyLanguage();
-  renderUpdateBanner(state.update);
 
   document.title = `watch2notif v${state.version}`;
 })();
