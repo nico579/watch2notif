@@ -4,7 +4,7 @@ Cross-platform (Windows/Linux/Mac). Runs the polling in a background
 thread, serves the settings/history GUI on local HTTP (browser), and
 shows a system tray icon on the main thread.
 
-Meme architecture que lidar2map (_serve_web.py + gui/ + pystray), plus de
+Meme architecture que lidar2map (serveweb + gui/ + pystray), plus de
 Qt/PySide6 dans watch2notif. L'icone et son menu viennent de
 nico579_commons.tray, le meme menu dans les quatre applications (Ouvrir,
 Mettre a jour, Redemarrer, Arreter, Creer un raccourci) ; pause,
@@ -28,14 +28,12 @@ import time
 import webbrowser
 from pathlib import Path
 
-from nico579_commons import environnement, raccourci, relance
+from nico579_commons import atomique, environnement, maj, raccourci, relance, serveweb
 from nico579_commons import tray as apptray
 
-import _serve_web
 import autostart_manager
 import data_paths
 import i18n
-import json_store
 import notification_history
 import notify_backend
 import self_update
@@ -46,6 +44,9 @@ from providers import DEFAULT_KIND, PROVIDERS
 CONFIG_FILE = data_paths.DATA_DIR / "config.json"
 STATE_DIR = data_paths.DATA_DIR / "state"
 STATE_SCHEMA_VERSION = 2
+# Dernière release publiée, interrogée par un fil de fond (une fois par heure) :
+# le cycle de poll et le menu lisent la dernière réponse sans attendre le réseau.
+VERIFICATEUR = maj.Verificateur(update_check.DEPOT, update_check.VERSION)
 # Un flux peut publier une entree avec quelques minutes de retard ou plusieurs
 # entrees a la meme seconde. On ne classe silencieusement comme "remontee
 # ancienne" qu'une entree clairement anterieure au repere persiste.
@@ -110,18 +111,18 @@ def default_config() -> dict:
 
 
 def load_config() -> dict:
-    # tolerate_corrupt=False : un config.json corrompu leve, comme avant, au
+    # tolerer_corrompu=False : un config.json corrompu leve, comme avant, au
     # lieu d'etre remplace en silence par la config par defaut au prochain
     # enregistrement (il se repare encore a la main).
-    config = json_store.read_json(CONFIG_FILE, None, tolerate_corrupt=False)
+    config = atomique.lire_json(CONFIG_FILE, None, tolerer_corrompu=False)
     return default_config() if config is None else config
 
 
 def save_config(config: dict) -> None:
-    # Temporaire unique et verrou par fichier (json_store) : l'ancien
+    # Temporaire unique par ecriture (nico579_commons.atomique) : l'ancien
     # config.json.tmp au nom fixe faisait echouer deux enregistrements
     # simultanes (double clic sur Enregistrer, deux onglets).
-    json_store.write_json_atomic(CONFIG_FILE, config, indent=2)
+    atomique.ecrire_json(CONFIG_FILE, config, indent=2)
 
 
 # Lecture-modification-ecriture de la config par la route save-config : deux
@@ -215,7 +216,7 @@ def _valid_timestamp(value, *, reject_far_future: bool = True) -> float | None:
 def load_feed_state(feed_key: str) -> FeedState:
     # Illisible ou corrompu : leve, comme avant. Un etat vide rendu a tort
     # ferait paraitre toutes les entrees nouvelles, donc tout re-notifier.
-    raw = json_store.read_json(state_file(feed_key), None, tolerate_corrupt=False)
+    raw = atomique.lire_json(state_file(feed_key), None, tolerer_corrompu=False)
     if raw is None:
         return FeedState()
     if isinstance(raw, list):
@@ -274,8 +275,8 @@ def _write_json_atomic(path: Path, data) -> None:
     """Ecrit dans un fichier temporaire puis renomme : un lecteur concurrent
     (poll_loop tournant pendant une sauvegarde de reglages, par exemple) ne
     peut jamais voir un fichier tronque/partiellement ecrit. Temporaire
-    unique et verrou par fichier : cf. json_store."""
-    json_store.write_json_atomic(path, data)
+    unique : cf. nico579_commons.atomique."""
+    atomique.ecrire_json(path, data, indent=None)
 
 
 def fetch_entries(feed: dict):
@@ -529,7 +530,7 @@ class SharedState:
 
     def mark_update_seen(self, info: dict | None) -> None:
         """Appele par poll_loop a chaque cycle avec le resultat de
-        update_check.disponible(). Ne perd jamais l'etat d'un
+        VERIFICATEUR.disponible(). Ne perd jamais l'etat d'un
         telechargement deja en cours si un check concurrent revient
         temporairement vide (meme garde que l'ancien _on_update_available)."""
         with self._lock:
@@ -608,7 +609,7 @@ def poll_loop(state: SharedState) -> None:
                         print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
                     next_due[key] = now + interval
 
-            info = update_check.disponible(data_paths.DATA_DIR)
+            info = VERIFICATEUR.disponible()
             state.mark_update_seen(info)
             if info and info["version"] != notified_version:
                 notified_version = info["version"]
@@ -633,7 +634,8 @@ def _run_update_worker(state: SharedState, expected_version: str, stop_event: th
     _on_update_failed - seule la frontiere de thread Qt disparait, plus
     besoin d'y repasser la main pour agir sur le resultat."""
     try:
-        latest = update_check.disponible(data_paths.DATA_DIR, force=True)
+        VERIFICATEUR.verifier()
+        latest = VERIFICATEUR.disponible()
         if not latest:
             raise self_update.UpdateError("missing_asset", "la release n'est plus disponible")
         if latest.get("version") != expected_version:
@@ -756,10 +758,10 @@ def _construire_tray(url: str, state: SharedState, stop_event: threading.Event,
 
 
 def build_api_routes(pause_event: threading.Event, state: SharedState, stop_event: threading.Event) -> tuple:
-    """Construit (api_routes, post_routes) pour _serve_web.demarrer().
+    """Construit (api_routes, post_routes) pour serveweb.demarrer().
     Fonction a part de main() : un test peut ainsi monter le vrai serveur
     avec les vraies routes sur un port dedie, sans passer par
-    single_instance/migrer_donnees_existantes/le tray - juste l'API HTTP."""
+    single_instance/la reprise des donnees/le tray - juste l'API HTTP."""
 
     def _api_strings() -> dict:
         return i18n.STRINGS
@@ -855,7 +857,10 @@ def main() -> None:
     # navigateur) : sous Linux, le binaire leur transmettrait sinon ses
     # propres bibliotheques (issue #23 de blink2video).
     environnement.retablir_environnement_systeme()
-    data_paths.migrer_donnees_existantes()
+    try:
+        data_paths.DOSSIERS.preparer_etat(data_paths.INSTALL_DIR)
+    except (OSError, TimeoutError) as exc:
+        print(f"reprise des donnees d'une ancienne installation reportee ({exc}).")
     url = f"http://127.0.0.1:{PORT}/"
 
     if not single_instance.acquire(data_paths.DATA_DIR):
@@ -887,7 +892,7 @@ def main() -> None:
     api_routes, post_routes = build_api_routes(pause_event, state, stop_event)
 
     try:
-        server = _serve_web.demarrer(
+        server = serveweb.demarrer(
             bind=BIND, port=PORT, trusted_host="", gui_dir=GUI_DIR,
             api_routes=api_routes, post_routes=post_routes, favicon=ICON_FILE,
         )
@@ -899,6 +904,7 @@ def main() -> None:
     if first_run or "--settings" in sys.argv[1:]:
         threading.Timer(0.5, webbrowser.open, [url]).start()
 
+    VERIFICATEUR.veiller(stop_event)
     threading.Thread(target=poll_loop, args=(state,), daemon=True).start()
 
     def _arreter_serveur():

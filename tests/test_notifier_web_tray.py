@@ -1,13 +1,13 @@
 """Tests de la migration Qt -> web+pystray : SharedState (remplace les
 signaux Qt), build_feeds_from_rows (remplace SettingsWindow.on_save), les
-routes HTTP reelles (build_api_routes + _serve_web, sur un port ephemere
+routes HTTP reelles (build_api_routes + serveweb, sur un port ephemere
 et un DATA_DIR temporaire - jamais les vraies donnees), et la construction
 du tray (jamais icon.run(), voir la lecon de la migration lidar2map).
 
 Piege connu (voir memoire feedback-migrer-donnees-installdir-piege-test) :
-data_paths.migrer_donnees_existantes() lit INSTALL_DIR, jamais patchable,
+DOSSIERS.preparer_etat(INSTALL_DIR) lit INSTALL_DIR, jamais patchable,
 qui pointe toujours vers le vrai dossier du projet. Aucun test ici
-n'appelle notifier.main() ni migrer_donnees_existantes() : build_api_routes
+n'appelle notifier.main() ni preparer_etat() : build_api_routes
 et _construire_tray suffisent a exercer le vrai code sans passer par elles.
 """
 import builtins
@@ -189,7 +189,7 @@ class HttpApiTests(unittest.TestCase):
         self.state = notifier.SharedState(self.pause_event)
         self.stop_event = threading.Event()
         api_routes, post_routes = notifier.build_api_routes(self.pause_event, self.state, self.stop_event)
-        self.server = notifier._serve_web.demarrer(
+        self.server = notifier.serveweb.demarrer(
             bind="127.0.0.1", port=0, trusted_host="", gui_dir=notifier.GUI_DIR,
             api_routes=api_routes, post_routes=post_routes, favicon=notifier.ICON_FILE,
         )
@@ -348,7 +348,7 @@ class HttpApiTests(unittest.TestCase):
     def test_update_install_starts_worker_when_available(self):
         # Mocker _run_update_worker (la cible du thread), jamais
         # threading.Thread lui-meme : ce dernier est le MEME objet module
-        # que celui utilise par _serve_web/ThreadingHTTPServer pour traiter
+        # que celui utilise par serveweb/ThreadingHTTPServer pour traiter
         # chaque requete HTTP - le patcher globalement bloque le serveur
         # en plein test (constate : timeout sur la reponse HTTP elle-meme).
         self.state.mark_update_seen({"version": "9.9.9", "page": "https://example.test"})

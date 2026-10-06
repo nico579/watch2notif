@@ -1,5 +1,5 @@
 // Page de reglages/historique de watch2notif, servie sur HTTP local par
-// notifier.py (_serve_web.py). Remplace le panneau Qt (settings.py) et la
+// notifier.py (nico579_commons.serveweb). Remplace le panneau Qt (settings.py) et la
 // fenetre d'historique (history_window.py), tous deux retires. Vanilla JS,
 // pas de framework - meme choix que lidar2map/blink2video pour ce type de
 // page (formulaire + table), aucune bibliotheque a charger.

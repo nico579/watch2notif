@@ -9,58 +9,45 @@ un bon endroit pour des donnees a garder.
 DATA_DIR est le dossier standard fourni par la plateforme pour les
 donnees d'un utilisateur (%APPDATA% sous Windows, XDG_DATA_HOME sous
 Linux, Application Support sous Mac, via platformdirs) : aucune
-reinstallation, mise a jour ou reconstruction ne le touche.
+reinstallation, mise a jour ou reconstruction ne le touche. Meme regle que
+blink2video, lidar2map et gpxsolar : WATCH2NOTIF_HOME l'emporte (tests,
+installation particuliere).
 
 Avant ce module, config.json/state/ etc. vivaient directement dans
 INSTALL_DIR, qui faisait donc double emploi : un `python build.py` local
 lance le 2026-09-17 a efface la configuration reelle de Nico (18 sources)
 et l'historique de dedup avec le reste du dossier reconstruit.
-migrer_donnees_existantes() deplace une bonne fois les fichiers d'une
-installation anterieure a ce module vers DATA_DIR.
+
+Toute la logique (calcul du dossier, reprise unique des donnees d'une
+installation anterieure) est dans nico579_commons.dossiers, la meme pour les
+quatre applications. Ce qui reste ici est propre a watch2notif : ses noms, ses
+fichiers et son dossier d'installation. notifier.main() appelle
+DOSSIERS.preparer_etat(INSTALL_DIR) au demarrage.
 """
-import os
-import shutil
 import sys
 from pathlib import Path
 
-from platformdirs import user_data_dir
+from nico579_commons.dossiers import Dossiers
 
 INSTALL_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
-# Même règle que blink2video et lidar2map : la variable <APP>_HOME l'emporte
-# (tests, installation particulière), sinon le dossier standard de l'OS.
-DATA_DIR = Path(os.environ.get("WATCH2NOTIF_HOME")
-                or user_data_dir("watch2notif", appauthor=False)).expanduser().resolve()
+
+DOSSIERS = Dossiers(
+    "watch2notif",
+    # Le dossier d'etat s'appelle « watch2notif », pas « watch2notif-data » :
+    # les donnees des utilisateurs y sont deja.
+    nom_etat="watch2notif",
+    nom_sorties="watch2notif",
+    variable_home="WATCH2NOTIF_HOME",
+    # Noms herites de l'epoque ou INSTALL_DIR faisait aussi office de DATA_DIR.
+    # watch2notif.log volontairement absent : en mode fige, notifier.py cree son
+    # log a l'import (avant meme la reprise) si sys.stdout est None, donc la
+    # cible existe toujours - un vieux log n'est que du texte de diagnostic,
+    # pas une donnee a proteger comme les autres.
+    fichiers_etat=("config.json", "notification_history.json", ".watch2notif.lock", "state"),
+    marqueur=".watch2notif_etat_migre.json",
+)
+DATA_DIR = DOSSIERS.dossier_etat()
 # Cree tout de suite, a l'import : notifier.py ouvre son fichier de log
-# dans DATA_DIR avant meme d'appeler migrer_donnees_existantes() (le tout
+# dans DATA_DIR avant meme d'appeler DOSSIERS.preparer_etat() (le tout
 # premier print() possible, avant que main() ne tourne).
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-# Noms herites de l'epoque ou INSTALL_DIR faisait aussi office de DATA_DIR.
-# watch2notif.log volontairement absent : en mode fige, notifier.py cree son
-# log a l'import (avant meme cet appel) si sys.stdout est None, donc la
-# cible existe toujours avant que la migration ne l'atteigne - un vieux log
-# n'est que du texte de diagnostic, pas une donnee a proteger comme les
-# trois autres.
-_FICHIERS_HERITES = ("config.json", "notification_history.json", ".watch2notif.lock")
-_DOSSIERS_HERITES = ("state",)
-
-
-def migrer_donnees_existantes() -> None:
-    """Deplace les donnees d'une installation anterieure a DATA_DIR, une
-    seule fois (marqueur pose a la fin). Ne fait rien pour une installation
-    neuve (rien a migrer) ni pour un second appel (deja migre)."""
-    marqueur = DATA_DIR / ".migrated_from_install_dir"
-    if marqueur.exists():
-        return
-
-    for nom in _FICHIERS_HERITES:
-        source = INSTALL_DIR / nom
-        cible = DATA_DIR / nom
-        if source.exists() and not cible.exists():
-            shutil.move(str(source), str(cible))
-    for nom in _DOSSIERS_HERITES:
-        source = INSTALL_DIR / nom
-        cible = DATA_DIR / nom
-        if source.is_dir() and not cible.exists():
-            shutil.move(str(source), str(cible))
-    marqueur.touch()

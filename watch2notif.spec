@@ -2,7 +2,7 @@
 # l'environnement isole puis appelle PyInstaller sur ce fichier.
 #
 # Un seul executable, watch2notif. Reglages et historique sont une page
-# web (gui/), servie en HTTP local par _serve_web.py et ouverte dans le
+# web (gui/), servie en HTTP local par nico579_commons.serveweb et ouverte dans le
 # navigateur par defaut - plus de fenetre Qt separee. L'icone de zone de
 # notification utilise pystray (meme bibliotheque que lidar2map et
 # blink2video) : plus de PySide6/QSystemTrayIcon dans ce projet, donc plus
@@ -43,7 +43,7 @@ else:
 PYNC_DATAS = collect_data_files("pync") if sys.platform == "darwin" else []
 
 # Page de reglages/historique (index.html/app.js/style.css), servie telle
-# quelle en HTTP local par _serve_web.py (send_static) : ce sont des
+# quelle en HTTP local par nico579_commons.serveweb (send_static) : ce sont des
 # fichiers statiques, jamais importes par du code Python, PyInstaller ne
 # les detecte donc pas tout seul (meme situation que gui/ dans
 # lidar2map.spec).

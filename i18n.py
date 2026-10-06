@@ -1,5 +1,5 @@
 """Textes de l'interface (FR/EN) pour gui/ (page web de reglages/historique,
-servie par notifier.py via _serve_web.py) et l'icone de tray. Meme esprit
+servie par notifier.py via nico579_commons.serveweb) et l'icone de tray. Meme esprit
 que le bilinguisme des autres projets (blink2video, lidar2map) : anglais
 par defaut, francais si la locale systeme le suggere, bascule manuelle
 persistee dans config.json. Consomme aussi bien cote Python (tray) que

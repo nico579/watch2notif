@@ -46,7 +46,7 @@ added as a `providers/` module, nothing else to touch.
   `github_discussion.py`, `youtube_comments.py`), each exposing
   `fetch_entries(source) -> list[Entry]`. Adding a new source type means
   adding a module here, nothing else changes.
-- `gui/` + `_serve_web.py`: settings/history page (add/remove sources,
+- `gui/` + `nico579_commons.serveweb`: settings/history page (add/remove sources,
   pick their type, set per-source polling interval, toggle autostart,
   browse the last 200 notifications actually sent, double-click a row to
   reopen its link) served on local HTTP (stdlib `http.server`, no
