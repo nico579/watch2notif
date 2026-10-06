@@ -9,11 +9,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import autostart_manager
+from nico579_commons import demarrage
 
 
 class RaccourciWindowsTests(unittest.TestCase):
@@ -21,13 +23,18 @@ class RaccourciWindowsTests(unittest.TestCase):
         dossier = tempfile.TemporaryDirectory(prefix="w2n-appdata-")
         self.addCleanup(dossier.cleanup)
         self.appdata = Path(dossier.name) / "Roaming é"
+        self.startup = self.appdata / "Startup"
         for correctif in (mock.patch.dict(os.environ, {"APPDATA": str(self.appdata)}),
                           mock.patch.object(autostart_manager.platform, "system",
-                                            return_value="Windows")):
+                                            return_value="Windows"),
+                          mock.patch.object(demarrage, "sys", types.SimpleNamespace(platform="win32")),
+                          # Jamais le vrai dossier Démarrage.
+                          mock.patch.object(demarrage, "dossier_demarrage",
+                                            return_value=self.startup)):
             correctif.start()
             self.addCleanup(correctif.stop)
-        self.lnk = autostart_manager._windows_startup_file()
-        self.vbs = autostart_manager._windows_legacy_file()
+        self.lnk = self.startup / "watch2notif.lnk"
+        self.vbs = self.startup / "watch2notif.vbs"
         self.vbs.parent.mkdir(parents=True)
 
     def powershell_simule(self, reussi=True):
@@ -36,7 +43,7 @@ class RaccourciWindowsTests(unittest.TestCase):
             if reussi:
                 self.lnk.write_bytes(b"raccourci")
             return subprocess.CompletedProcess(commande, 0 if reussi else 1, stderr="refus")
-        return mock.patch.object(autostart_manager.subprocess, "run", side_effect=lancer)
+        return mock.patch.object(demarrage.subprocess, "run", side_effect=lancer)
 
     def test_enable_cree_le_raccourci_et_retire_le_vbs(self):
         self.vbs.write_text("ancien", encoding="utf-8")
@@ -91,7 +98,7 @@ class RaccourciWindowsTests(unittest.TestCase):
         lecture = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              "$s = (New-Object -ComObject WScript.Shell).CreateShortcut("
-             + autostart_manager._chaine_ps(str(self.lnk))
+             + "'" + str(self.lnk).replace("'", "''") + "'"
              + "); Write-Output $s.TargetPath"],
             capture_output=True, text=True, check=True)
         self.assertEqual(Path(lecture.stdout.strip()),
@@ -100,8 +107,8 @@ class RaccourciWindowsTests(unittest.TestCase):
 
 class MigrationHorsWindowsTests(unittest.TestCase):
     def test_rien_hors_windows(self):
-        with mock.patch.object(autostart_manager.platform, "system", return_value="Linux"), \
-                mock.patch.object(autostart_manager.subprocess, "run") as lancer:
+        with mock.patch.object(demarrage, "sys", types.SimpleNamespace(platform="linux")), \
+                mock.patch.object(demarrage.subprocess, "run") as lancer:
             self.assertFalse(autostart_manager.migrer_ancien_demarrage())
         lancer.assert_not_called()
 
