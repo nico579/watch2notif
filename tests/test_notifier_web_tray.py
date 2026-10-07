@@ -456,6 +456,12 @@ class TrayMenuTests(unittest.TestCase):
         navigateur.assert_called_once_with("http://127.0.0.1:0/")
 
 
+class VerificationDeVersionTests(unittest.TestCase):
+    def test_la_derniere_reponse_est_gardee_dans_le_dossier_de_donnees(self):
+        self.assertEqual(notifier.VERIFICATEUR._cache, notifier.data_paths.DATA_DIR / "maj.json")
+        self.assertEqual(notifier.VERIFICATEUR.fraicheur_s, 3600)
+
+
 class BoutonReglagesTests(unittest.TestCase):
     """Le bouton « Reglages » commun et les fichiers JavaScript communs de la page."""
 
