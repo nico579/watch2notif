@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -94,12 +95,27 @@ class _TimestampedLog:
         self._stream.flush()
 
 
-# En executable "windowed" (console=False, cf watch2notif.spec), Windows ne
-# donne pas de console au process : sys.stdout/stderr valent None, et le
-# moindre print() plante. On redirige alors vers un fichier de log a cote
-# de l'executable, seul moyen de garder une trace d'un poller silencieux.
+def doit_journaliser(stdout, fige: bool, auto_test: bool) -> bool:
+    """Vrai si les print() doivent aller au journal plutot qu'a la sortie standard.
+
+    En executable "windowed" (console=False, cf watch2notif.spec), Windows ne
+    donne pas de console au process. Lance par le raccourci du demarrage,
+    sys.stdout vaut None. Mais relance par « Redemarrer », il recoit un tube
+    dont l'ancien process etait le seul lecteur : sys.stdout existe, et le
+    premier print() leve « OSError: [Errno 22] Invalid argument » (constate en
+    reel le 2026-10-07). Un executable fige n'a donc jamais de sortie standard
+    sur laquelle compter : le journal, dans tous les cas. L'auto-test
+    (--self-test-version) garde la sienne, que la CI lit.
+    """
+    if auto_test:
+        return False
+    return stdout is None or fige
+
+
+# Le journal est a cote des donnees, seul moyen de garder une trace d'un
+# poller silencieux.
 SELF_TEST_REQUESTED = "--self-test-version" in sys.argv[1:]
-if sys.stdout is None and not SELF_TEST_REQUESTED:
+if doit_journaliser(sys.stdout, getattr(sys, "frozen", False), SELF_TEST_REQUESTED):
     log_file = open(data_paths.DATA_DIR / "watch2notif.log", "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = _TimestampedLog(log_file)
 elif sys.stdout is not None:
@@ -622,8 +638,11 @@ def _actions_tray(url: str, state: SharedState, stop_event: threading.Event,
         # demarre pendant que celui-ci finit de sortir.
         arreter_serveur()
         single_instance.release()
+        # Sortie standard explicite : sans elle, un process sans console (cas de
+        # l'executable) la remplace par un tube que ce process emporte en sortant.
         relance.relancer(autostart_manager.notifier_command(), nom="watch2notif",
-                         cwd=str(autostart_manager.PROJECT_DIR))
+                         cwd=str(autostart_manager.PROJECT_DIR),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _creer_raccourci() -> None:
         # --settings : ouvre la page, que watch2notif tourne deja ou non.
