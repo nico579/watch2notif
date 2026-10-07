@@ -5,57 +5,43 @@ sur crash. Pas de fichier PID a nettoyer ni de risque qu'un PID recycle
 plus tard par un autre process fasse croire qu'une instance tourne
 encore (piege classique des schemas a fichier PID) : le verrou EST l'etat,
 il n'y a rien a interpreter.
+
+Le verrou est celui de nico579_commons.atomique, le meme que pour les
+fichiers d'etat des autres applications. Il porte le meme fichier
+(.watch2notif.lock) et le meme octet qu'avant : une version plus ancienne
+encore en cours d'execution (la mise a jour lance la nouvelle avant la sortie
+de l'ancienne) reste exclue par la nouvelle, et inversement.
 """
-import sys
+import contextlib
 from pathlib import Path
 
-if sys.platform == "win32":
-    import msvcrt
-else:
-    import fcntl
+from nico579_commons import atomique
 
-# Garde le handle ouvert pour la duree de vie du process : le verrou tient
-# tant qu'il l'est, se relache tout seul (fermeture du fd) a la sortie.
-_lock_file = None
+# Tient le verrou pour la duree de vie du process : le contexte reste ouvert
+# tant qu'on ne le ferme pas, et l'OS le rend de toute facon a la sortie.
+_verrou = None
 
 
 def acquire(base_dir: Path) -> bool:
     """Vrai si le verrou a ete pris (aucune autre instance active)."""
-    global _lock_file
-    lock_path = base_dir / ".watch2notif.lock"
-
-    lock_path.touch(exist_ok=True)
-    if lock_path.stat().st_size == 0:
-        lock_path.write_bytes(b"0")
-
-    handle = open(lock_path, "r+b")
+    global _verrou
+    pile = contextlib.ExitStack()
     try:
-        if sys.platform == "win32":
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        handle.close()
+        # « .lock » est ajoute par atomique : le fichier est .watch2notif.lock.
+        pile.enter_context(atomique.verrou_inter_processus(
+            Path(base_dir) / ".watch2notif", delai_s=0))
+    except (TimeoutError, OSError):
         return False
-
-    _lock_file = handle  # reference gardee : fermer le fd liberait le verrou
+    _verrou = pile
     return True
 
 
 def release() -> None:
     """Relache le verrou avant la fin du process : Redemarrer lance le
     nouveau process avant que celui-ci ne soit sorti, et le nouveau doit
-    pouvoir le prendre. Sous Windows, deverrouillage explicite avant la
-    fermeture : Microsoft ne garantit pas quand la fermeture seule rend
-    l'octet verrouille."""
-    global _lock_file
-    if _lock_file is None:
+    pouvoir le prendre."""
+    global _verrou
+    if _verrou is None:
         return
-    try:
-        if sys.platform == "win32":
-            _lock_file.seek(0)
-            msvcrt.locking(_lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-    except OSError:
-        pass
-    _lock_file.close()
-    _lock_file = None
+    _verrou.close()
+    _verrou = None
