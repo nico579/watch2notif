@@ -456,6 +456,27 @@ class TrayMenuTests(unittest.TestCase):
         navigateur.assert_called_once_with("http://127.0.0.1:0/")
 
 
+class BoutonReglagesTests(unittest.TestCase):
+    """Le bouton « Reglages » commun et les fichiers JavaScript communs de la page."""
+
+    def test_la_page_place_le_bouton_avant_le_choix_de_langue(self):
+        html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<script src="/nico579-reglages.js"></script>', html)
+        self.assertLess(html.index("/app.js"), html.index("/nico579-reglages.js"))
+        # Meme place que dans blink2video : juste avant FR / EN.
+        self.assertLess(html.index('id="nico579-reglages"'), html.index('id="lang-toggle"'))
+
+    def test_l_executable_embarque_les_fichiers_communs(self):
+        # PyInstaller n'embarque les donnees d'un paquet que si le .spec le demande ;
+        # sans cela la page reclame /nico579-maj.js et /nico579-reglages.js en 404.
+        spec = (Path(notifier.__file__).parent / "watch2notif.spec").read_text(encoding="utf-8")
+        self.assertIn('collect_data_files("nico579_commons")', spec)
+        self.assertIn("COMMUN_DATAS", spec.split("datas=", 1)[1])
+
+    def test_les_fichiers_communs_sont_dans_le_paquet(self):
+        self.assertEqual(notifier.serveweb.fichiers_manquants(), [])
+
+
 class SortieStandardTests(unittest.TestCase):
     """Ou vont les print() : au journal, des qu'on ne peut pas compter sur la sortie standard."""
 
