@@ -404,6 +404,16 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(result["error"], "boom")
         self.assertFalse(result["actif"])
 
+    def test_le_choix_de_langue_du_commun_est_garde_dans_la_config(self):
+        status, result = self._post("/api/langue", {"code": "fr"})
+        self.assertEqual((result["ok"], result["code"]), (True, "fr"))
+        self.assertEqual(json.loads(self._get("/api/langue")[1])["code"], "fr")
+        on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["lang"], "fr")
+        # Une simple detection du navigateur n'est pas un choix : rien d'ecrit.
+        self._post("/api/langue", {"code": "en", "detectee": True})
+        self.assertEqual(json.loads(self._get("/api/langue")[1])["code"], "fr")
+
     def test_history_empty_then_populated_after_a_real_notify_call(self):
         self.assertEqual(json.loads(self._get("/api/history")[1]), {"entries": []})
         with mock.patch.object(notifier.notify_backend, "notify"):
@@ -494,6 +504,15 @@ class BoutonReglagesTests(unittest.TestCase):
         js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
         self.assertIn("nico579Reglages.ajouter", js)
         self.assertNotIn("autostart_enabled", js)
+
+    def test_le_selecteur_de_langue_est_celui_du_commun(self):
+        html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="lang-toggle" data-nico579-langue', html)
+        self.assertNotIn('data-lang="fr"', html)             # les boutons sont dessines par le commun
+        self.assertLess(html.index("/app.js"), html.index("/nico579-langue.js"))
+        js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("'nico579-langue'", js)
+        self.assertNotIn("getElementById('lang-toggle')", js)
 
     def test_l_onglet_des_sources_s_appelle_flux(self):
         html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")

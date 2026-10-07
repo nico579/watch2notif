@@ -66,9 +66,6 @@ function applyLanguage() {
       el.textContent = t(el.dataset.i18n);
     });
   });
-  document.querySelectorAll('#lang-toggle button').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.lang === lang);
-  });
   renderFeedKindOptions();
   renderServerInfo();
 }
@@ -273,11 +270,11 @@ scheduleRefresh();
 
 // --- cablage des controles statiques -------------------------------------
 
-document.getElementById('lang-toggle').addEventListener('click', (event) => {
-  const btn = event.target.closest('button[data-lang]');
-  if (!btn) return;
-  lang = btn.dataset.lang;
-  applyLanguage();
+// Le choix FR / EN est celui du commun (/nico579-langue.js, route /api/langue) : il dessine les
+// boutons, garde le choix et annonce chaque changement ; la page applique ses textes.
+document.addEventListener('nico579-langue', (event) => {
+  lang = event.detail.code;
+  if (Object.keys(STRINGS).length) applyLanguage();   // sinon init() s'en charge, textes chargés
 });
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -308,7 +305,7 @@ document.getElementById('history-clear-btn').addEventListener('click', async () 
 (async function init() {
   STRINGS = await api.strings();
   const state = await api.state();
-  lang = state.config.lang || 'en';
+  lang = (window.nico579Langue && window.nico579Langue.code()) || state.config.lang || 'en';
   providers = state.providers;
   defaultKind = state.default_kind;
   serverInfo = { version: state.version, pid: state.pid };

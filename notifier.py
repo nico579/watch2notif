@@ -29,7 +29,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from nico579_commons import atomique, demarrage, environnement, maj, maj_install, raccourci, relance, serveweb
+from nico579_commons import atomique, demarrage, environnement, langue, maj, maj_install, raccourci, relance, serveweb
 from nico579_commons import tray as apptray
 
 import autostart_manager
@@ -742,14 +742,30 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
     # un champ de ce formulaire, donc enregistrer les flux n'y touche pas.
     routes_demarrage_get, routes_demarrage_post = demarrage.routes(autostart_manager.entree, _langue_tray)
 
+    def _lire_langue():
+        try:
+            return load_config().get("lang")
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return None
+
+    def _ecrire_langue(code: str) -> None:
+        with _config_lock:
+            config = load_config()
+            config["lang"] = code
+            save_config(config)
+
+    # Le choix FR / EN est celui du commun (/nico579-langue.js) ; le menu de l'icone le relit.
+    routes_langue_get, routes_langue_post = langue.routes(_lire_langue, _ecrire_langue)
+
     api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history,
-                  **routes_maj_get, **routes_demarrage_get}
+                  **routes_maj_get, **routes_demarrage_get, **routes_langue_get}
     post_routes = {
         "save-config": _api_save_config,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
         **routes_maj_post,
         **routes_demarrage_post,
+        **routes_langue_post,
     }
     return api_routes, post_routes
 
