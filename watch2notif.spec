@@ -41,6 +41,9 @@ else:
 # fige, faute de trouver l'app vendorisee. Non teste ici (pas de Mac) :
 # a verifier sur un vrai build macOS.
 PYNC_DATAS = collect_data_files("pync") if sys.platform == "darwin" else []
+# Les fichiers JavaScript du paquet commun (bandeau de mise a jour, bouton Reglages) :
+# PyInstaller n'embarque pas les donnees d'un paquet sans qu'on le lui demande.
+COMMUN_DATAS = collect_data_files("nico579_commons")
 
 # Page de reglages/historique (index.html/app.js/style.css), servie telle
 # quelle en HTTP local par nico579_commons.serveweb (send_static) : ce sont des
@@ -108,7 +111,7 @@ analysis = Analysis(
     # (RESOURCE_DIR/ICON_FILE, voir notifier.py) : le .ico tire de APP_ICON,
     # rangee comme celles de blink2video, lidar2map et gpxsolar ; gui/ est la
     # page de reglages/historique (voir GUI_DATAS ci-dessus).
-    datas=[(str(APP_ICON.with_suffix(".ico")), "assets")] + GUI_DATAS + PYNC_DATAS,
+    datas=[(str(APP_ICON.with_suffix(".ico")), "assets")] + GUI_DATAS + PYNC_DATAS + COMMUN_DATAS,
     # tkinter : jamais importe par ce projet (page web, pas de GUI native) ;
     # l'exclure evite d'embarquer Tcl/Tk pour rien si un hook tiers le
     # detectait par erreur.

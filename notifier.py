@@ -857,6 +857,12 @@ if __name__ == "__main__":
             raise SystemExit(2)
         if expected_version != update_check.VERSION or not ICON_FILE.is_file():
             raise SystemExit(3)
+        # Les fichiers JavaScript communs (bandeau de mise à jour, bouton Réglages)
+        # doivent être dans le bundle : sans eux la page en réclame un qui n'existe pas.
+        if serveweb.fichiers_manquants():
+            print("auto-test : fichiers communs absents du bundle :",
+                  ", ".join(serveweb.fichiers_manquants()))
+            raise SystemExit(4)
         raise SystemExit(0)
     try:
         main()
