@@ -47,7 +47,10 @@ STATE_DIR = data_paths.DATA_DIR / "state"
 STATE_SCHEMA_VERSION = 2
 # Dernière release publiée, interrogée par un fil de fond (une fois par heure) :
 # le cycle de poll et le menu lisent la dernière réponse sans attendre le réseau.
-VERIFICATEUR = maj.Verificateur(update_check.DEPOT, update_check.VERSION)
+# Gardée dans le dossier de données : un redémarrage ne repose pas la question tant que
+# la réponse a moins d'une heure.
+VERIFICATEUR = maj.Verificateur(update_check.DEPOT, update_check.VERSION,
+                                cache=data_paths.DATA_DIR / "maj.json")
 # Un flux peut publier une entree avec quelques minutes de retard ou plusieurs
 # entrees a la meme seconde. On ne classe silencieusement comme "remontee
 # ancienne" qu'une entree clairement anterieure au repere persiste.
