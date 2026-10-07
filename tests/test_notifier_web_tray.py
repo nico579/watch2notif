@@ -456,6 +456,24 @@ class TrayMenuTests(unittest.TestCase):
         navigateur.assert_called_once_with("http://127.0.0.1:0/")
 
 
+class SortieStandardTests(unittest.TestCase):
+    """Ou vont les print() : au journal, des qu'on ne peut pas compter sur la sortie standard."""
+
+    def test_executable_fige_toujours_au_journal(self):
+        flux = object()
+        self.assertTrue(notifier.doit_journaliser(None, False, False))     # lance par le raccourci
+        self.assertTrue(notifier.doit_journaliser(flux, True, False))      # relance : tube sans lecteur
+        self.assertTrue(notifier.doit_journaliser(None, True, False))
+
+    def test_depuis_les_sources_on_garde_la_console(self):
+        self.assertFalse(notifier.doit_journaliser(object(), False, False))
+
+    def test_l_auto_test_garde_sa_sortie_standard_que_la_ci_lit(self):
+        for stdout, fige in ((object(), True), (object(), False), (None, True)):
+            with self.subTest(stdout=stdout, fige=fige):
+                self.assertFalse(notifier.doit_journaliser(stdout, fige, True))
+
+
 class TrayActionsTests(unittest.TestCase):
     """Les actions que watch2notif donne au menu commun, appelees
     directement : ni icone, ni vraie relance, ni vrai raccourci sur le
@@ -484,6 +502,16 @@ class TrayActionsTests(unittest.TestCase):
         _, commande, options = self.journal[2]
         self.assertEqual(commande, notifier.autostart_manager.notifier_command())
         self.assertEqual(options["nom"], "watch2notif")
+
+    def test_redemarrer_donne_au_nouveau_process_une_sortie_qui_survit_a_celui_ci(self):
+        # Sans stdout ni stderr, un process sans console (l'executable) les remplace par
+        # un tube que le nouveau process perd des que celui-ci sort : le premier print()
+        # de ce dernier leve « OSError: [Errno 22] Invalid argument » (2026-10-07).
+        with mock.patch.object(notifier.single_instance, "release"),                 mock.patch.object(notifier.relance, "relancer") as relancer:
+            self.actions.redemarrer()
+        options = relancer.call_args.kwargs
+        self.assertIs(options["stdout"], notifier.subprocess.DEVNULL)
+        self.assertIs(options["stderr"], notifier.subprocess.DEVNULL)
 
     def test_arreter_arrete_le_serveur(self):
         self.actions.arreter()
