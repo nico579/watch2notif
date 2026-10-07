@@ -11,5 +11,5 @@ Ce fichier ne garde que ce que lisent aussi le spec PyInstaller et la CI
 (update_check.VERSION, verifie contre l'etiquette de la release).
 """
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 DEPOT = "nico579/watch2notif"

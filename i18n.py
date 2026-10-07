@@ -10,9 +10,8 @@ import locale
 STRINGS = {
     "window_title": {"en": "watch2notif - settings", "fr": "watch2notif - reglages"},
     "header_pid": {"en": "Server PID {pid}", "fr": "PID serveur {pid}"},
-    "tab_settings": {"en": "Settings", "fr": "Reglages"},
+    "tab_feeds": {"en": "Feeds", "fr": "Flux"},
     "tab_history": {"en": "History", "fr": "Historique"},
-    "autostart_label": {"en": "Start automatically with the system", "fr": "Demarrer automatiquement avec le systeme"},
     "header_active": {"en": "Active", "fr": "Actif"},
     "header_kind": {"en": "Type", "fr": "Type"},
     "header_name": {"en": "Name", "fr": "Nom"},
@@ -46,10 +45,6 @@ STRINGS = {
     },
     "save_button": {"en": "Save", "fr": "Sauvegarder"},
     "autostart_error_title": {"en": "Autostart error", "fr": "Erreur autostart"},
-    "autostart_error_msg": {
-        "en": "Settings saved, but autostart failed: {error}",
-        "fr": "Reglages sauvegardes, mais l'autostart a echoue: {error}",
-    },
     "ok_title": {"en": "OK", "fr": "OK"},
     "ok_msg": {"en": "Settings saved to config.json.", "fr": "Reglages sauvegardes dans config.json."},
     # Le menu de l'icone vient, traduit, de nico579_commons.tray. Ces cles
