@@ -29,7 +29,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from nico579_commons import atomique, environnement, maj, maj_install, raccourci, relance, serveweb
+from nico579_commons import atomique, demarrage, environnement, maj, maj_install, raccourci, relance, serveweb
 from nico579_commons import tray as apptray
 
 import autostart_manager
@@ -702,7 +702,6 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
                 for kind, provider in PROVIDERS.items()
             },
             "default_kind": DEFAULT_KIND,
-            "autostart_enabled": autostart_manager.is_enabled(),
             "paused": pause_event.is_set(),
         }
 
@@ -718,22 +717,6 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
             config["feeds"] = feeds
             config["lang"] = payload.get("lang") or config.get("lang") or i18n.detect_default_lang()
             save_config(config)
-
-        try:
-            wants_autostart = bool(payload.get("autostart_enabled"))
-            currently_enabled = autostart_manager.is_enabled()
-            if wants_autostart and not currently_enabled:
-                autostart_manager.enable()
-            elif not wants_autostart and currently_enabled:
-                autostart_manager.disable()
-        except Exception as exc:
-            # "ok": True ici, pas "error" seul : save_config() ci-dessus a
-            # deja reussi, seul le bascule autostart a echoue. Une cle
-            # "error" generique laissait croire a l'appelant que rien
-            # n'avait ete sauvegarde (trouve en audit ; app.js faisait un
-            # retour anticipe sur "error" qui sautait la reaffectation des
-            # clefs cote serveur pour toute nouvelle ligne du meme envoi).
-            return {"ok": True, "feeds": feeds, "autostart_error": str(exc)}
 
         return {"ok": True, "feeds": feeds}
 
@@ -754,13 +737,19 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
     state.installateur = _installateur(stop_event)
     routes_maj_get, routes_maj_post = maj_install.routes(state.installateur, _langue_tray)
 
+    # La case « Demarrer automatiquement avec le systeme » est celle du commun
+    # (/api/autostart, dessinee par reglages.js dans le panneau Reglages) : plus
+    # un champ de ce formulaire, donc enregistrer les flux n'y touche pas.
+    routes_demarrage_get, routes_demarrage_post = demarrage.routes(autostart_manager.entree, _langue_tray)
+
     api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history,
-                  **routes_maj_get}
+                  **routes_maj_get, **routes_demarrage_get}
     post_routes = {
         "save-config": _api_save_config,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
         **routes_maj_post,
+        **routes_demarrage_post,
     }
     return api_routes, post_routes
 

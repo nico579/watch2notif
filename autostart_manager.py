@@ -42,7 +42,7 @@ def notifier_command() -> list:
     return [sys.executable, str(NOTIFIER_PATH)]
 
 
-def _entree() -> demarrage.Entree:
+def entree() -> demarrage.Entree:
     """L'entree de demarrage de watch2notif. Le .vbs des versions <= 0.2.3 est
     retire avec elle (VBScript quitte Windows)."""
     return demarrage.Entree(
@@ -53,19 +53,19 @@ def _entree() -> demarrage.Entree:
 
 
 def is_enabled() -> bool:
-    return demarrage.est_actif(_entree())
+    return demarrage.est_actif(entree())
 
 
 def enable() -> None:
-    demarrage.activer(_entree())
+    demarrage.activer(entree())
 
 
 def disable() -> None:
-    demarrage.desactiver(_entree())
+    demarrage.desactiver(entree())
 
 
 def migrer_ancien_demarrage() -> bool:
     """Remplace le .vbs d'une version <= 0.2.3 par le raccourci, sans
     toucher au choix de l'utilisateur : rien si le demarrage automatique
     n'etait pas actif. Vrai si un remplacement a eu lieu."""
-    return demarrage.migrer_vbs(_entree())
+    return demarrage.migrer_vbs(entree())

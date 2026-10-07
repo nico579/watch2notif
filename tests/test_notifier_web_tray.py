@@ -156,17 +156,20 @@ class HttpApiTests(unittest.TestCase):
 
         self.autostart_enabled = False
 
-        def _enable():
+        def _activer(_entree):
             self.autostart_enabled = True
+            return []
 
-        def _disable():
+        def _desactiver(_entree):
             self.autostart_enabled = False
 
+        # La case de demarrage est celle du commun (nico579_commons.demarrage.routes) :
+        # on simule ses trois gestes, jamais le vrai dossier Demarrage ni systemd.
         self.autostart_patch = mock.patch.multiple(
-            notifier.autostart_manager,
-            is_enabled=lambda: self.autostart_enabled,
-            enable=_enable,
-            disable=_disable,
+            notifier.demarrage,
+            est_actif=lambda _entree: self.autostart_enabled,
+            activer=_activer,
+            desactiver=_desactiver,
         )
         self.autostart_patch.start()
 
@@ -264,7 +267,7 @@ class HttpApiTests(unittest.TestCase):
         status, body = self._get("/api/state")
         data = json.loads(body)
         self.assertEqual(data["config"]["feeds"], [])
-        self.assertFalse(data["autostart_enabled"])
+        self.assertNotIn("autostart_enabled", data)       # c'est /api/autostart, celle du commun
         self.assertFalse(data["paused"])
         self.assertNotIn("update", data)
 
@@ -284,12 +287,10 @@ class HttpApiTests(unittest.TestCase):
     def test_save_config_persists_and_returns_generated_keys(self):
         status, result = self._post("/api/save-config", {
             "lang": "fr",
-            "autostart_enabled": True,
             "feeds": [{"key": "", "label": "Feed A", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 45}],
         })
         self.assertTrue(result["ok"])
         self.assertEqual(result["feeds"][0]["key"], "feed_a")
-        self.assertTrue(self.autostart_enabled)  # mock, jamais le vrai systeme
 
         on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
         self.assertEqual(on_disk["lang"], "fr")
@@ -375,21 +376,33 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertIn(b"400", reponse.split(b"\r\n", 1)[0])
 
-    def test_save_config_autostart_failure_still_persists_feeds(self):
-        # save_config() reussit avant le bloc autostart : une cle "error"
-        # generique laissait croire que rien n'avait ete sauvegarde alors
-        # que les flux, eux, l'etaient deja (trouve en audit).
-        with mock.patch.object(notifier.autostart_manager, "enable", side_effect=RuntimeError("boom")):
-            status, result = self._post("/api/save-config", {
-                "lang": "fr",
-                "autostart_enabled": True,
-                "feeds": [{"key": "", "label": "Feed A", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 45}],
-            })
+    def test_enregistrer_les_flux_ne_touche_pas_au_demarrage_automatique(self):
+        # Le demarrage n'est plus un champ de ce formulaire : l'ancienne page l'envoyait a chaque
+        # enregistrement, et son absence le desactiverait si on la lisait comme « decoche ».
+        self.autostart_enabled = True
+        status, result = self._post("/api/save-config", {
+            "lang": "fr",
+            "feeds": [{"key": "", "label": "Feed A", "url": "https://a.test", "enabled": True, "kind": "rss", "interval_seconds": 45}],
+        })
         self.assertTrue(result["ok"])
-        self.assertIn("autostart_error", result)
-        self.assertEqual(result["feeds"][0]["key"], "feed_a")
-        on_disk = json.loads(notifier.CONFIG_FILE.read_text(encoding="utf-8"))
-        self.assertEqual(on_disk["feeds"][0]["url"], "https://a.test")
+        self.assertTrue(self.autostart_enabled)
+        self.assertNotIn("autostart_error", result)
+
+    def test_la_case_de_demarrage_du_commun_agit_tout_de_suite(self):
+        self.assertFalse(json.loads(self._get("/api/autostart")[1])["actif"])
+        status, result = self._post("/api/autostart", {"actif": True})
+        self.assertEqual((result["ok"], result["actif"]), (True, True))
+        self.assertTrue(self.autostart_enabled)            # simulacre, jamais le vrai systeme
+        self.assertTrue(json.loads(self._get("/api/autostart")[1])["actif"])
+        status, result = self._post("/api/autostart", {"actif": False})
+        self.assertEqual((result["ok"], result["actif"]), (True, False))
+
+    def test_un_echec_du_demarrage_est_dit_sans_toucher_aux_flux(self):
+        with mock.patch.object(notifier.demarrage, "activer", side_effect=RuntimeError("boom")):
+            status, result = self._post("/api/autostart", {"actif": True})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "boom")
+        self.assertFalse(result["actif"])
 
     def test_history_empty_then_populated_after_a_real_notify_call(self):
         self.assertEqual(json.loads(self._get("/api/history")[1]), {"entries": []})
@@ -471,6 +484,22 @@ class BoutonReglagesTests(unittest.TestCase):
         self.assertLess(html.index("/app.js"), html.index("/nico579-reglages.js"))
         # Meme place que dans blink2video : juste avant FR / EN.
         self.assertLess(html.index('id="nico579-reglages"'), html.index('id="lang-toggle"'))
+
+    def test_reglages_generaux_vont_dans_le_panneau_commun(self):
+        # Pause et demarrage automatique ne sont plus dans l'onglet : la pause est ajoutee au
+        # panneau Reglages par app.js, le demarrage est la case du commun.
+        html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("autostart-check", html)
+        self.assertNotIn("pause-check", html)
+        js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("nico579Reglages.ajouter", js)
+        self.assertNotIn("autostart_enabled", js)
+
+    def test_l_onglet_des_sources_s_appelle_flux(self):
+        html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('data-i18n="tab_feeds"', html)
+        self.assertNotIn("tab_settings", html)
+        self.assertEqual(notifier.i18n.STRINGS["tab_feeds"], {"en": "Feeds", "fr": "Flux"})
 
     def test_l_executable_embarque_les_fichiers_communs(self):
         # PyInstaller n'embarque les donnees d'un paquet que si le .spec le demande ;

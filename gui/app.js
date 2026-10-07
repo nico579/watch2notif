@@ -13,6 +13,27 @@ const api = {
   clearHistory: () => _post('/api/clear-history', {}),
 };
 
+// --- la pause, dans le panneau « Reglages » commun ------------------------------------
+// (nico579_commons, /nico579-reglages.js, bouton a cote de FR / EN). Construite ici et
+// gardee par reference : le panneau retire ses lignes du document quand il se ferme.
+// Le demarrage automatique, lui, est la case du commun (/api/autostart).
+
+const reglagesGeneraux = document.createElement('div');
+const pauseLabel = document.createElement('label');
+pauseLabel.className = 'checkbox-row';
+const pauseCheck = document.createElement('input');
+pauseCheck.type = 'checkbox';
+pauseCheck.id = 'pause-check';
+const pauseText = document.createElement('span');
+pauseText.dataset.i18n = 'tray_pause';
+pauseLabel.append(pauseCheck, pauseText);
+reglagesGeneraux.appendChild(pauseLabel);
+
+// reglages.js (charge apres ce fichier) definit window.nico579Reglages.
+window.addEventListener('load', () => {
+  if (window.nico579Reglages) window.nico579Reglages.ajouter('', reglagesGeneraux);
+});
+
 function _post(route, payload) {
   return fetch(route, {
     method: 'POST',
@@ -39,8 +60,11 @@ function t(key, params) {
 
 function applyLanguage() {
   document.documentElement.lang = lang;
-  document.querySelectorAll('[data-i18n]').forEach((el) => {
-    el.textContent = t(el.dataset.i18n);
+  // Le panneau Reglages retire ses lignes du document a la fermeture : on les traduit aussi.
+  [document, reglagesGeneraux].forEach((racine) => {
+    racine.querySelectorAll('[data-i18n]').forEach((el) => {
+      el.textContent = t(el.dataset.i18n);
+    });
   });
   document.querySelectorAll('#lang-toggle button').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.lang === lang);
@@ -214,38 +238,27 @@ async function saveConfig() {
   status.classList.remove('error');
   const payload = {
     lang,
-    autostart_enabled: document.getElementById('autostart-check').checked,
     feeds: collectFeedsFromTable(),
   };
   const result = await api.saveConfig(payload);
   // Reaffecte les clefs generees cote serveur (nouvelles lignes) : sans ca,
   // un 2e Sauvegarder sans recharger la page regenererait un nouveau slug a
   // chaque fois pour ces lignes (meme piege que checkbox._feed_key en Qt).
-  // Fait meme si l'autostart a echoue ci-dessous : les sources, elles, sont
-  // deja sauvegardees cote serveur a ce stade (trouve en audit : l'ancien
-  // retour anticipe sur une cle "error" generique sautait cette
-  // reaffectation des qu'un simple bascule autostart echouait).
   const rows = Array.from(document.querySelectorAll('#feeds-body tr'));
   result.feeds.forEach((feed, index) => {
     if (rows[index]) rows[index].dataset.key = feed.key;
   });
-  if (result.autostart_error) {
-    status.textContent = t('autostart_error_msg', { error: result.autostart_error });
-    status.classList.add('error');
-    return;
-  }
   status.textContent = t('ok_msg');
 }
 
-// --- rafraichissement periodique (pause et demarrage automatique, jamais la
+// --- rafraichissement periodique (la pause, jamais la
 // table de sources) ; le bandeau de mise a jour est celui du commun
 // (/nico579-maj.js), qui se recharge seul apres le redemarrage ---
 
 async function refreshState() {
   try {
     const state = await api.state();
-    document.getElementById('pause-check').checked = state.paused;
-    document.getElementById('autostart-check').checked = state.autostart_enabled;
+    pauseCheck.checked = state.paused;
   } catch (exc) {
     // Serveur momentanement injoignable (redemarrage) : on reessaie au tick suivant.
   }
@@ -281,7 +294,7 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 document.getElementById('add-feed-btn').addEventListener('click', () => createFeedRow());
 document.getElementById('save-btn').addEventListener('click', saveConfig);
-document.getElementById('pause-check').addEventListener('change', (event) => {
+pauseCheck.addEventListener('change', (event) => {
   api.setPause(event.target.checked);
 });
 document.getElementById('history-clear-btn').addEventListener('click', async () => {
@@ -300,8 +313,7 @@ document.getElementById('history-clear-btn').addEventListener('click', async () 
   defaultKind = state.default_kind;
   serverInfo = { version: state.version, pid: state.pid };
 
-  document.getElementById('autostart-check').checked = state.autostart_enabled;
-  document.getElementById('pause-check').checked = state.paused;
+  pauseCheck.checked = state.paused;
   renderFeedsTable(state.config.feeds || []);
   applyLanguage();
 
