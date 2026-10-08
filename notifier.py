@@ -33,6 +33,7 @@ from nico579_commons import atomique, demarrage, environnement, langue, maj, maj
 from nico579_commons import tray as apptray
 
 import autostart_manager
+import filtre_ia
 import data_paths
 import i18n
 import notification_history
@@ -203,6 +204,8 @@ def build_feeds_from_rows(rows: list, known_kinds: dict | None = None) -> list:
             "enabled": bool(row.get("enabled")),
             "kind": kind,
             "interval_seconds": interval_seconds,
+            # Consigne du filtre IA (filtre_ia.py) ; vide = tout notifier.
+            "filtre_ia": str(row.get("filtre_ia") or "").strip(),
         })
     return feeds
 
@@ -316,12 +319,16 @@ def _truncate(text: str, max_len: int) -> str:
     return text if len(text) <= max_len else text[: max_len - 3] + "..."
 
 
-def notify(feed_label: str, entry) -> None:
+def notify(feed_label: str, entry, raison: str = "") -> None:
     title = entry.get("title", "(sans titre)")
     author = entry.get("author", "?")
     body = (entry.get("summary") or "").strip().replace("\n", " ")
     if len(body) > 150:
         body = body[:150] + "..."
+    if raison:
+        # Le verdict du filtre IA passe avant le debut du message : c'est lui qui dit
+        # pourquoi cette notification merite d'etre lue.
+        body = f"{raison} | {body}" if body else raison
     full_title = f"[{feed_label}] {title}"
     link = entry.get("link", "")
     notify_backend.notify(
@@ -486,9 +493,29 @@ def poll_feed(feed: dict) -> None:
         save_feed_state(key, state)
 
     sent = 0
+    filtered = 0
+    consigne = str(feed.get("filtre_ia") or "").strip()
     for entry, entry_id, timestamp in reversed(candidates):
+        raison = ""
+        if consigne:
+            try:
+                verdict = filtre_ia.juger(consigne, entry)
+            except filtre_ia.FiltreIndisponible as exc:
+                # Sans verdict, on notifie quand meme en le disant : perdre une
+                # entree en silence serait pire qu'une notification de trop.
+                raison = f"(filtre IA indisponible : {exc})"
+                print(f"[{label}] filtre IA indisponible, notification sans tri : {exc}")
+            else:
+                if not verdict.pertinent:
+                    print(f"[{label}] ecartee par le filtre IA : {entry.get('title', '')!r} ({verdict.raison})")
+                    state.seen_ids.add(entry_id)
+                    state.pending_ids.discard(entry_id)
+                    save_feed_state(key, state)
+                    filtered += 1
+                    continue
+                raison = verdict.raison
         try:
-            notify(label, entry)
+            notify(label, entry, raison) if raison else notify(label, entry)
         except Exception as exc:
             print(f"[{label}] notif ratee pour une entree, on continue: {exc}")
             continue
@@ -511,6 +538,8 @@ def poll_feed(feed: dict) -> None:
         print(f"[{label}] {backfilled} ancienne(s) entree(s) memorisee(s) sans notification.")
     if sent:
         print(f"[{label}] {sent} nouvelle(s) notif(s) envoyee(s).")
+    if filtered:
+        print(f"[{label}] {filtered} entree(s) ecartee(s) par le filtre IA.")
 
 
 class SharedState:

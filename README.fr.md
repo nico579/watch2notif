@@ -184,6 +184,32 @@ variable d'environnement `YOUTUBE_API_KEY`. Cout de quota : 2 unites par
 sondage (quota gratuit de 10000/jour), donc l'intervalle par defaut est
 une question de courtoisie, pas de necessite de quota.
 
+## Filtre IA (facultatif)
+
+Certaines sources sont trop larges pour etre utiles telles quelles. Une
+recherche Reddit sur "local storage" dans un subreddit de cameras remonte
+les personnes a qui votre outil rendrait service, mais aussi des plaintes
+de facturation et des photos de cameras neuves. Les mots seuls ne font pas
+la difference ; la lecture du message, si.
+
+Chaque source a un bouton **Filtre IA**. Il ouvre une zone de texte ou
+l'on decrit, en langage courant, les entrees qui meritent une
+notification, par exemple : "Les questions de personnes qui veulent
+garder ou telecharger leurs clips Blink sans abonnement. Pas les plaintes
+de facturation, pas les problemes de detection de mouvement." Avant de
+notifier une nouvelle entree, watch2notif envoie son titre et son texte a
+Claude Haiku avec cette consigne, et ne notifie que celles qu'il juge
+pertinentes, avec en tete de la notification une phrase qui dit pourquoi.
+Les autres sont memorisees comme vues et ne reviennent jamais. Une zone
+vide veut dire : pas de filtre.
+
+Il faut une cle d'API Anthropic dans la variable d'environnement
+`ANTHROPIC_API_KEY` (console.anthropic.com). L'API se paie a l'usage, a
+part de tout abonnement Claude ; trier quelques dizaines de messages par
+mois avec Haiku coute quelques centimes. Si la cle manque ou que l'API ne
+repond pas, watch2notif notifie quand meme et le dit dans la
+notification : une entree n'est jamais perdue en silence.
+
 ## Ajouter un type de source
 
 Un provider est un module dans `providers/` qui expose deux choses :

@@ -18,6 +18,19 @@ STRINGS = {
     "header_url": {"en": "URL / source", "fr": "URL / source"},
     "header_interval": {"en": "Interval (s)", "fr": "Intervalle (s)"},
     "add_feed_button": {"en": "+ Add a source", "fr": "+ Ajouter une source"},
+    "filter_button": {"en": "AI filter", "fr": "Filtre IA"},
+    "filter_button_title": {
+        "en": "Only notify the entries an AI model judges relevant to your instructions "
+              "(needs ANTHROPIC_API_KEY, see README)",
+        "fr": "Ne notifier que les entrees qu'un modele d'IA juge conformes a votre consigne "
+              "(demande ANTHROPIC_API_KEY, voir README)",
+    },
+    "filter_placeholder": {
+        "en": "Instructions for the AI filter: which entries deserve a notification? "
+              "Empty = notify everything.",
+        "fr": "Consigne du filtre IA : quelles entrees meritent une notification ? "
+              "Vide = tout notifier.",
+    },
     "note_text": {
         "en": "Any RSS/Atom feed works, plus GitHub issues (owner/repo, public "
               "repos, no auth needed), GitHub discussion replies "
