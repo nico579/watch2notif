@@ -120,7 +120,7 @@ jobs:
 
   android:
     name: Tests et distribution Android signee
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,11 +137,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle
+            android/gradle/wrapper/gradle-wrapper.properties
       - name: Preparer le SDK
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sdk_manager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdk_manager" || { echo "::error::SDK manager absent : $sdk_manager"; exit 1; }
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk_root" "$sdk_root" >> "$GITHUB_ENV"
+          printf '%s\n' "$sdk_root/cmdline-tools/latest/bin" "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_manager" --sdk_root="$sdk_root" 'platforms;android-36' 'build-tools;35.0.0'
       - name: Tests et Android Lint (debug et release)
         working-directory: android
-        run: bash gradlew testDebugUnitTest testReleaseUnitTest lintDebug lintRelease --no-daemon --console=plain
+        run: bash gradlew testDebugUnitTest testReleaseUnitTest lintDebug lintRelease --no-daemon --max-workers=2 --console=plain
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -170,10 +181,11 @@ jobs:
           export WATCH2NOTIF_KEYSTORE="$RUNNER_TEMP/watch2notif-release.jks"
           trap 'rm -f "$WATCH2NOTIF_KEYSTORE"' EXIT
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$WATCH2NOTIF_KEYSTORE"
-          bash gradlew assembleRelease bundleRelease --no-daemon --console=plain
+          bash gradlew assembleRelease bundleRelease --no-daemon --max-workers=2 --console=plain
           apk=app/build/outputs/apk/release/app-release.apk
           aab=app/build/outputs/bundle/release/app-release.aab
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/apk-signature.log"
+          grep -q '^Signer #1 certificate SHA-256 digest: fac9af3cd0b49e5364450d5b48afdbd0b36c28a0292661d34f3a46283c31d9fe$' "$RUNNER_TEMP/apk-signature.log"
           jarsigner -J-Duser.language=en -J-Duser.country=US -verify "$aab" > "$RUNNER_TEMP/aab-signature.log"
           cat "$RUNNER_TEMP/aab-signature.log"
           grep -q '^jar verified\.$' "$RUNNER_TEMP/aab-signature.log"
@@ -191,6 +203,7 @@ jobs:
           printf '%s  %s\n' a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29 "$bundletool" | sha256sum --check
           test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath='/manifest/@android:versionName')" = "$version"
           test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath='/manifest/@android:versionCode')" = "$version_code"
+          python3 ../tools/verify_android_build.py --build-dir app/build --apk "$apk" --aab "$aab"
           mkdir -p ../dist
           cp "$apk" ../dist/watch2notif-android.apk
           cp "$aab" ../dist/watch2notif-android.aab
