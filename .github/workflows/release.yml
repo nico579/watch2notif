@@ -82,6 +82,7 @@ jobs:
       - name: Installer les dependances verrouillees
         run: python -m pip install --quiet --require-hashes -r requirements.txt
       - name: Verifier les modules et l'interface
+        shell: bash
         run: |
           python -m compileall -q .
           node --check gui/app.js
