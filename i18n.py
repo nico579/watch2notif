@@ -25,6 +25,16 @@ STRINGS = {
         "fr": "Ne notifier que les entrees qu'un modele d'IA juge conformes a votre consigne "
               "(demande ANTHROPIC_API_KEY, voir README)",
     },
+    "filter_key_missing": {
+        "en": "No ANTHROPIC_API_KEY on this computer: this filter will not sort anything, "
+              "every entry is notified. How to get one and set it:",
+        "fr": "Pas de cle ANTHROPIC_API_KEY sur cet ordinateur : ce filtre ne triera rien, "
+              "toutes les entrees seront notifiees. Comment l'obtenir et la poser :",
+    },
+    "filter_key_url": {
+        "en": "https://github.com/nico579/watch2notif#ai-filter-optional",
+        "fr": "https://github.com/nico579/watch2notif/blob/master/README.fr.md#filtre-ia-facultatif",
+    },
     "filter_placeholder": {
         "en": "Instructions for the AI filter: which entries deserve a notification? "
               "Empty = notify everything.",

@@ -732,6 +732,9 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
             },
             "default_kind": DEFAULT_KIND,
             "paused": pause_event.is_set(),
+            # Le filtre IA a-t-il une cle ? Un booleen seulement : la cle ne quitte jamais
+            # le serveur. Sans elle, la page le dit sous chaque consigne.
+            "cle_ia_presente": bool(filtre_ia.cle_api()),
         }
 
     def _api_history() -> dict:
