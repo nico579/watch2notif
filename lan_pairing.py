@@ -9,8 +9,11 @@ import hmac
 import io
 import ipaddress
 import json
+import os
+import platform
 import secrets
 import socket
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +26,82 @@ def encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
 
-def local_address() -> str:
+_PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+_WINDOWS_INTERFACES_SCRIPT = """
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$rows = @(foreach ($configuration in Get-NetIPConfiguration -ErrorAction Stop) {
+    if ($configuration.NetAdapter.Status -ne 'Up' -or $configuration.NetAdapter.HardwareInterface -ne $true) { continue }
+    foreach ($ip in $configuration.IPv4Address) {
+        [pscustomobject]@{
+            address = [string]$ip.IPAddress
+            label = [string]$configuration.InterfaceAlias
+            gateway = @($configuration.IPv4DefaultGateway | Where-Object { $_.NextHop }).Count -gt 0
+            network_category = [string]$configuration.NetProfile.NetworkCategory
+        }
+    }
+})
+ConvertTo-Json -InputObject $rows -Compress -Depth 3
+"""
+
+
+def _private_address(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ValueError:
+        return False
+    return any(address in network for network in _PRIVATE_NETWORKS)
+
+
+def _windows_candidates() -> list | None:
+    """Read connected, non-virtual Windows interfaces without changing anything.
+
+    Get-NetIPConfiguration without -All excludes virtual/disconnected adapters.
+    None means discovery failed; an empty list means it succeeded with no LAN IP.
+    """
+    executable = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                              "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    try:
+        result = subprocess.run(
+            [executable, "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_INTERFACES_SCRIPT],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8",
+            timeout=10, check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if len(result.stdout) > 65536:
+            return None
+        rows = json.loads(result.stdout.lstrip("\ufeff"))
+        if isinstance(rows, dict):
+            rows = [rows]
+        if not isinstance(rows, list):
+            return None
+        candidates = []
+        for row in rows:
+            if not isinstance(row, dict) or not _private_address(row.get("address")):
+                continue
+            address = row["address"]
+            label = " ".join(str(row.get("label") or address).split())[:128]
+            category = str(row.get("network_category") or "").lower()
+            if category not in {"public", "private", "domainauthenticated"}:
+                category = "unknown"
+            candidates.append({"address": address, "label": label, "network_category": category,
+                               "gateway": row.get("gateway") is True})
+        # Prefer a physical LAN with a gateway rather than a disconnected island.
+        candidates.sort(key=lambda row: (not row["gateway"], row["label"].casefold(),
+                                         int(ipaddress.IPv4Address(row["address"]))))
+        unique, seen = [], set()
+        for candidate in candidates:
+            if candidate["address"] not in seen:
+                seen.add(candidate["address"])
+                unique.append({key: candidate[key] for key in ("address", "label", "network_category")})
+        return unique
+    except (OSError, subprocess.SubprocessError, ValueError, UnicodeError):
+        return None
+
+
+def _fallback_candidates() -> list:
+    """Portable standard-library fallback; only literal private IPv4 is exposed."""
     addresses = []
     # UDP connect selects an interface without sending a packet to this documentation address.
     try:
@@ -36,10 +114,26 @@ def local_address() -> str:
         addresses.extend(socket.gethostbyname_ex(socket.gethostname())[2])
     except OSError:
         pass
+    candidates, seen = [], set()
     for address in addresses:
-        ip = ipaddress.ip_address(address)
-        if any(ip in ipaddress.ip_network(network) for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
-            return address
+        if _private_address(address) and address not in seen:
+            seen.add(address)
+            candidates.append({"address": address, "label": address, "network_category": "unknown"})
+    return candidates
+
+
+def local_candidates() -> list:
+    if platform.system() == "Windows":
+        candidates = _windows_candidates()
+        if candidates is not None:
+            return candidates
+    return _fallback_candidates()
+
+
+def local_address() -> str:
+    candidates = local_candidates()
+    if candidates:
+        return candidates[0]["address"]
     raise OSError("No private IPv4 LAN interface available")
 
 
@@ -169,14 +263,22 @@ class PairingManager:
         self.lock = threading.Lock()
         self.session = None
 
-    def start(self, config: dict) -> dict:
+    def candidates(self) -> list:
+        return local_candidates()
+
+    def start(self, config: dict, address: str | None = None) -> dict:
         import qrcode
         import qrcode.image.svg
 
+        if address is None:
+            address = local_address()
+        elif not _private_address(address) or address not in {candidate["address"] for candidate in local_candidates()}:
+            # An HTTP client cannot make us bind a public, wildcard or remote IP.
+            raise ValueError("invalid local address")
         with self.lock:
             if self.session:
                 self.session.close()
-            session = PairingSession(config, local_address())
+            session = PairingSession(config, address)
             self.session = session
             try:
                 qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=6, border=4)

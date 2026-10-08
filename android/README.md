@@ -56,12 +56,22 @@ et une nouvelle première vérification établit leur référence sans notificat
 Une clé absente sur le PC conserve la clé déjà configurée sur Android.
 L’import des sources et des identifiants chiffrés est enregistré atomiquement.
 
-Le QR donne accès aux réglages et aux clés : ne pas le diffuser. Un VPN,
-l’isolation des clients Wi-Fi ou le pare-feu du PC peut empêcher la connexion.
-Dans ce cas, autoriser watch2notif/Python sur le réseau privé et générer un
-nouveau QR. Aucun accès entrant permanent, redirection de port Internet ou
-service cloud n’est nécessaire. La première version prend en charge les
-réseaux IPv4 privés (10/8, 172.16/12, 192.168/16).
+Le QR donne accès aux réglages et aux clés : ne pas le diffuser. Vérifier
+l’interface choisie dans la fenêtre PC et utiliser le réseau du téléphone.
+Un réseau invité avec isolation des clients, un VPN bloquant le réseau local
+ou le pare-feu peut empêcher la connexion. Sur Windows, **Autoriser le transfert
+local** demande le consentement administrateur pour une règle TCP limitée au
+seul exécutable watch2notif, à l’adresse PC choisie et au sous-réseau local
+(profils Privé/Public). La règle reste enregistrée ; le serveur reste temporaire,
+fermé après usage, annulation ou 120 secondes. Le consentement permet de remplacer
+les blocages TCP généraux du seul exécutable sur le profil Public par cette
+permission limitée. Les blocages UDP, Privé, Domaine, gérés ou plus spécifiques
+restent en place et peuvent empêcher le transfert. Le profil réseau n’est pas modifié.
+Android utilise le Wi-Fi/Ethernet pour cette seule requête, sans proxy ni
+changement du routage des autres connexions. L’erreur distingue délai dépassé,
+connexion refusée, statut HTTP et QR expiré. Générer et scanner un nouveau QR
+après correction. Aucun port Internet ou service cloud n’est nécessaire.
+Les réseaux IPv4 privés sont pris en charge (10/8, 172.16/12, 192.168/16).
 
 ## Surveillance et notifications
 

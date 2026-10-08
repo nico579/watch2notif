@@ -12,7 +12,9 @@ const api = {
   validateConfig: (payload) => _post('/api/validate-config', payload),
   pairStart: (payload) => _post('/api/pair-start', payload),
   pairStatus: () => fetch('/api/pair-status').then(r => r.json()),
+  pairNetwork: () => fetch('/api/pair-network').then(r => r.json()),
   pairCancel: () => _post('/api/pair-cancel', {}),
+  pairAllow: () => _post('/api/pair-allow', {}),
   setPause: (paused) => _post('/api/set-pause', { paused }),
   clearHistory: () => _post('/api/clear-history', {}),
 };
@@ -385,43 +387,149 @@ document.getElementById('config-import-btn').addEventListener('click', () => {
 });
 
 let pairingTimer;
-document.getElementById('pair-start-btn').addEventListener('click', async (event) => {
-  event.target.disabled = true;
+let pairingNetworks = [];
+let pairingGeneration = 0;
+let pairingMutations = Promise.resolve();
+
+// Start and cancel requests must reach the server in order, even if a dialog
+// closes while a request is in flight and another dialog opens immediately.
+function pairMutation(action) {
+  const operation = pairingMutations.then(action, action);
+  pairingMutations = operation.catch(() => {});
+  return operation;
+}
+
+function showPairFirewall(firewall = {}) {
+  document.getElementById('pair-firewall').hidden = !firewall.supported || firewall.reason === 'development';
+  document.getElementById('pair-allow-btn').hidden = !firewall.can_configure;
+  document.getElementById('pair-firewall-status').textContent = firewall.state === 'blocked'
+    ? t(firewall.can_configure ? 'pair_firewall_detected' : 'pair_firewall_blocked') : '';
+}
+
+function clearPairQr() {
+  clearInterval(pairingTimer);
+  const qr = document.getElementById('pair-qr');
+  qr.removeAttribute('src');
+  qr.hidden = true;
+}
+
+async function generatePairQr() {
+  clearPairQr();
+  const generation = ++pairingGeneration;
+  const dialog = document.getElementById('pair-dialog');
+  const selector = document.getElementById('pair-address');
+  const status = document.getElementById('pair-status');
+  const renew = document.getElementById('pair-renew-btn');
+  const allow = document.getElementById('pair-allow-btn');
+  const network = pairingNetworks.find(item => item.address === selector.value);
+  selector.disabled = true;
+  renew.disabled = true;
+  allow.disabled = true;
+  status.textContent = t('pair_preparing');
+  document.getElementById('pair-network-note').textContent = network && network.network_category === 'public'
+    ? t('pair_public_network') : '';
+  const payload = { feeds: collectFeedsFromTable(), address: selector.value };
   try {
-    const result = await api.pairStart({ feeds: collectFeedsFromTable() });
-    if (!result.ok) { transferStatus(result.error === 'invalid_config' ? 'config_invalid' : 'pair_unavailable', true); return; }
-    const dialog = document.getElementById('pair-dialog');
+    const result = await pairMutation(async () => {
+      await api.pairCancel();
+      if (generation !== pairingGeneration || !dialog.open) return null;
+      return api.pairStart(payload);
+    });
+    if (generation !== pairingGeneration || !dialog.open || !result) return;
+    if (!result.ok) { status.textContent = t(result.error === 'invalid_config' ? 'config_invalid' : 'pair_unavailable'); return; }
+    showPairFirewall(result.firewall);
     const qr = document.getElementById('pair-qr');
-    const status = document.getElementById('pair-status');
     qr.src = result.qr_svg;
     qr.hidden = false;
-    status.textContent = t('pair_ready', { address: result.address, seconds: 120 });
-    dialog.showModal();
+    status.textContent = t('pair_ready', { address: result.address, seconds: Math.max(0, Math.ceil(result.expires_at - Date.now() / 1000)) });
     pairingTimer = setInterval(async () => {
       try {
         const state = await api.pairStatus();
+        if (generation !== pairingGeneration || !dialog.open) return;
         const remaining = Math.max(0, Math.ceil(state.expires_at - Date.now() / 1000));
         if (state.state !== 'ready' || remaining === 0) {
-          clearInterval(pairingTimer);
-          qr.removeAttribute('src');
-          qr.hidden = true;
+          clearPairQr();
           status.textContent = t(state.state === 'used' ? 'pair_used' : 'pair_expired');
         } else status.textContent = t('pair_ready', { address: state.address, seconds: remaining });
       } catch (error) {
-        clearInterval(pairingTimer);
-        qr.removeAttribute('src');
-        qr.hidden = true;
-        status.textContent = t('pair_unavailable');
+        if (generation === pairingGeneration) {
+          clearPairQr();
+          status.textContent = t('pair_unavailable');
+        }
       }
     }, 1000);
+    return true;
+  } catch (error) {
+    if (generation === pairingGeneration && dialog.open) status.textContent = t('pair_unavailable');
+  }
+  finally {
+    if (generation === pairingGeneration && dialog.open) {
+      selector.disabled = false;
+      renew.disabled = false;
+      allow.disabled = false;
+    }
+  }
+}
+
+document.getElementById('pair-start-btn').addEventListener('click', async (event) => {
+  event.target.disabled = true;
+  try {
+    const result = await api.pairNetwork();
+    if (!result.ok || !result.addresses.length) { transferStatus('pair_unavailable', true); return; }
+    pairingNetworks = result.addresses;
+    const selector = document.getElementById('pair-address');
+    selector.replaceChildren();
+    for (const network of pairingNetworks) {
+      const option = document.createElement('option');
+      option.value = network.address;
+      option.textContent = `${network.label} — ${network.address}`;
+      selector.appendChild(option);
+    }
+    showPairFirewall();
+    document.getElementById('pair-dialog').showModal();
+    await generatePairQr();
   } catch (error) { transferStatus('pair_unavailable', true); }
   finally { event.target.disabled = false; }
 });
+document.getElementById('pair-address').addEventListener('change', generatePairQr);
+document.getElementById('pair-renew-btn').addEventListener('click', generatePairQr);
+document.getElementById('pair-allow-btn').addEventListener('click', async (event) => {
+  const generation = pairingGeneration;
+  const dialog = document.getElementById('pair-dialog');
+  event.target.disabled = true;
+  document.getElementById('pair-address').disabled = true;
+  document.getElementById('pair-renew-btn').disabled = true;
+  const status = document.getElementById('pair-firewall-status');
+  status.textContent = t('pair_firewall_wait');
+  try {
+    const result = await api.pairAllow();
+    if (generation !== pairingGeneration || !dialog.open) return;
+    status.textContent = t(result.ok ? 'pair_firewall_allowed' :
+      ['explicit_block', 'block_all', 'managed_network'].includes(result.error) ? 'pair_firewall_blocked' :
+      result.error === 'pair_expired' ? 'pair_expired' : 'pair_firewall_failed');
+    if (result.ok) {
+      const renewal = generatePairQr();
+      const renewedGeneration = pairingGeneration;
+      if (await renewal && renewedGeneration === pairingGeneration && dialog.open) {
+        status.textContent = t('pair_firewall_allowed');
+      }
+    }
+  } catch (error) {
+    if (generation === pairingGeneration && dialog.open) status.textContent = t('pair_firewall_failed');
+  }
+  finally {
+    if (generation === pairingGeneration && dialog.open) {
+      event.target.disabled = false;
+      document.getElementById('pair-address').disabled = false;
+      document.getElementById('pair-renew-btn').disabled = false;
+    }
+  }
+});
 document.getElementById('pair-close-btn').addEventListener('click', () => document.getElementById('pair-dialog').close());
 document.getElementById('pair-dialog').addEventListener('close', () => {
-  clearInterval(pairingTimer);
-  document.getElementById('pair-qr').removeAttribute('src');
-  api.pairCancel().catch(() => {});
+  ++pairingGeneration;
+  clearPairQr();
+  pairMutation(() => api.pairCancel()).catch(() => {});
 });
 
 document.getElementById('config-import-file').addEventListener('change', async (event) => {

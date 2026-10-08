@@ -109,6 +109,8 @@ See the [Android guide](android/README.md) for settings and limitations.
 1. Install the desktop and Android apps from the same release and connect
    both devices to the same local network.
 2. On the PC, click **Send to phone** in the **Feeds** tab.
+   Check the displayed interface and address: choose the Wi-Fi or Ethernet
+   connected to the phone's network rather than a VPN or virtual interface.
 3. On Android, open **Settings → Scan the PC QR**, allow camera access,
    scan the QR and confirm the import.
 
@@ -116,8 +118,22 @@ Sources, intervals, enabled states, Claude instructions and the desktop
 process's `GITHUB_TOKEN`, `YOUTUBE_API_KEY` and `ANTHROPIC_API_KEY` are
 transferred using authenticated AES-256-GCM encryption. The decryption key
 comes only from the QR. Its code expires after two minutes, works once and
-the PC closes the port after use or cancellation. No cloud service or
-permanent inbound access is required.
+the PC closes the port after use or cancellation. The server only listens during
+this transfer window; no cloud service or Internet port forwarding is required.
+
+If the phone cannot reach the PC, check the shared Wi-Fi and client isolation
+(guest networks). Windows may classify Wi-Fi as **Public** and block the app.
+In the QR dialog, **Allow local transfer** requests Windows administrator consent
+and adds a TCP rule for the watch2notif executable only, at the selected PC address,
+from the local subnet (Private/Public profiles). The rule remains saved without
+changing the network profile or disabling the firewall; the port still closes
+after use, cancellation or two minutes. With this explicit consent, general
+Public-only TCP block rules for this executable are disabled and replaced by
+the scoped permission. UDP, Private, Domain, managed or more specific block rules
+are left in place and may still prevent transfer. Scan the new QR after permission
+is granted. Android uses
+Wi-Fi/Ethernet for this request only, without a proxy, and distinguishes timeouts,
+connection refusal, HTTP status and expired QR codes.
 
 Import replaces the phone's sources and establishes a silent initial
 baseline. Each device keeps its own history. Android credentials are

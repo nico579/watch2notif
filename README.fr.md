@@ -119,6 +119,8 @@ Voir le [guide Android](android/README.md) pour les réglages et les limites.
 1. Installer les versions PC et Android de la même release, puis connecter
    les deux appareils au même réseau local.
 2. Sur le PC, cliquer **Envoyer vers le téléphone** dans l’onglet **Flux**.
+   Vérifier l’interface et l’adresse affichées : choisir le Wi-Fi ou l’Ethernet
+   du réseau du téléphone, plutôt qu’une interface VPN ou virtuelle.
 3. Sur Android, ouvrir **Réglages → Scanner le QR du PC**, autoriser la caméra,
    scanner le QR et confirmer l’import.
 
@@ -127,7 +129,23 @@ clés `GITHUB_TOKEN`, `YOUTUBE_API_KEY` et `ANTHROPIC_API_KEY` du processus PC
 sont transférés avec un chiffrement authentifié AES-256-GCM. La clé de
 déchiffrement vient uniquement du QR. Le code expire après deux minutes,
 ne fonctionne qu’une fois et le PC referme le port après usage ou annulation.
-Aucun service cloud ni accès entrant permanent n’est nécessaire.
+Le serveur n’écoute que pendant cette fenêtre de transfert ; aucun service cloud
+ni redirection de port Internet n’est nécessaire.
+
+Si le téléphone ne joint pas le PC, vérifier le réseau Wi-Fi commun et l’absence
+d’isolation des clients (réseau invité). Windows peut classer le Wi-Fi comme
+**Public** et bloquer le programme. Dans la fenêtre du QR, **Autoriser le transfert
+local** demande une autorisation administrateur Windows et ajoute une règle
+pour le seul exécutable watch2notif, en TCP, sur l’adresse PC sélectionnée et
+depuis le sous-réseau local (profils Privé/Public). Cette règle reste enregistrée,
+sans modifier le profil réseau ni désactiver le pare-feu ; le port continue de
+se fermer après usage, annulation ou deux minutes. Avec ce consentement explicite,
+les blocages TCP généraux du seul exécutable sur le profil Public sont désactivés
+et remplacés par cette permission limitée. Les blocages UDP, Privé, Domaine,
+gérés ou plus spécifiques restent en place et peuvent empêcher le transfert.
+Scanner le nouveau QR après autorisation.
+Android utilise le réseau Wi-Fi/Ethernet pour cette seule requête, sans proxy,
+et distingue un délai dépassé, une connexion refusée, un statut HTTP et un QR expiré.
 
 L’import remplace les sources du téléphone et établit une référence initiale
 silencieuse. L’historique reste propre à chaque appareil. Les clés Android sont

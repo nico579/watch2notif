@@ -118,4 +118,8 @@
     <string name="pair_invalid">Invalid QR or encrypted configuration. Nothing was imported.</string>
     <string name="pair_expired">This QR has expired or was already used. Generate a new one on the PC.</string>
     <string name="pair_network">Cannot reach the PC. Check the shared local network, VPN and PC firewall, then generate a new QR.</string>
+    <string name="pair_timeout">The PC did not respond in time. Check the shared Wi-Fi network and PC firewall, then generate a new QR.</string>
+    <string name="pair_refused">The PC refused the connection. Keep the PC transfer window open and generate a new QR.</string>
+    <string name="pair_http">The PC returned HTTP %1$d. Generate a new QR and try again.</string>
+    <string name="pair_endpoint">PC address: %1$s</string>
 </resources>

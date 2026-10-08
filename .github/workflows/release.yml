@@ -86,6 +86,7 @@ jobs:
         run: |
           python -m compileall -q .
           node --check gui/app.js
+          node --test tests/test_pairing_ui.cjs
       - name: Tester l'application, l'updater et l'appairage
         shell: bash
         run: python -m unittest discover -s tests -v 2>&1 | tee test-results.log

@@ -83,10 +83,30 @@ STRINGS = {
     "pair_send_button": {"en": "Send to phone", "fr": "Envoyer vers le telephone"},
     "pair_title": {"en": "Pair your phone", "fr": "Appairer le telephone"},
     "pair_note": {
-        "en": "Connect both devices to the same local network. In Android Settings, tap Receive from PC and scan this QR. Sources, Claude rules and API keys are encrypted; the decryption key is only in this QR. Treat the QR as private.",
-        "fr": "Connectez les deux appareils au meme reseau local. Dans les Reglages Android, touchez Recevoir depuis le PC puis scannez ce QR. Les sources, consignes Claude et cles API sont chiffrees ; la cle de dechiffrement est uniquement dans ce QR. Gardez ce QR prive.",
+        "en": "Connect both devices to the same local network. In Android Settings, tap Scan the PC QR. Sources, Claude rules and API keys are encrypted; the decryption key is only in this QR. Treat the QR as private.",
+        "fr": "Connectez les deux appareils au meme reseau local. Dans les Reglages Android, touchez Scanner le QR du PC. Les sources, consignes Claude et cles API sont chiffrees ; la cle de dechiffrement est uniquement dans ce QR. Gardez ce QR prive.",
     },
     "pair_ready": {"en": "PC: {address} - expires in {seconds} s", "fr": "PC : {address} - expire dans {seconds} s"},
+    "pair_address_label": {"en": "PC network connected to the phone", "fr": "Reseau du PC relie au telephone"},
+    "pair_preparing": {"en": "Preparing local access…", "fr": "Preparation de l'acces local…"},
+    "pair_public_network": {
+        "en": "Windows marks this network as Public. Its firewall may block the phone. Use Allow local transfer below if needed.",
+        "fr": "Windows classe ce reseau comme Public. Son pare-feu peut bloquer le telephone. Utilisez Autoriser le transfert local ci-dessous si necessaire.",
+    },
+    "pair_allow_button": {"en": "Allow local transfer", "fr": "Autoriser le transfert local"},
+    "pair_renew_button": {"en": "Generate a new QR", "fr": "Generer un nouveau QR"},
+    "pair_firewall_note": {
+        "en": "This button requests Windows administrator consent. It replaces watch2notif's general TCP block on Public networks with a permission limited to this app, the selected PC address and local-subnet peers. The rule remains saved; the encrypted transfer port closes after use or 2 minutes.",
+        "fr": "Ce bouton demande le consentement administrateur Windows. Il remplace le blocage TCP general de watch2notif sur les reseaux Publics par une autorisation limitee a cette application, a l'adresse PC choisie et au sous-reseau local. La regle reste enregistree ; le port du transfert chiffre se ferme apres usage ou 2 minutes.",
+    },
+    "pair_firewall_wait": {"en": "Accept the Windows administrator prompt…", "fr": "Validez la demande administrateur de Windows…"},
+    "pair_firewall_allowed": {"en": "Local transfer allowed. Scan the new QR. Phone connectivity still needs to be checked.", "fr": "Transfert local autorise. Scannez le nouveau QR. La connexion du telephone reste a verifier."},
+    "pair_firewall_blocked": {
+        "en": "A firewall block rule takes priority and cannot be replaced by this button. Check watch2notif in Windows Firewall.",
+        "fr": "Une regle de blocage du pare-feu est prioritaire et ne peut pas etre remplacee par ce bouton. Verifiez watch2notif dans le pare-feu Windows.",
+    },
+    "pair_firewall_detected": {"en": "Windows explicitly blocks watch2notif on Public networks. Allow local transfer to replace this block with a scoped permission.", "fr": "Windows bloque explicitement watch2notif sur les reseaux Publics. Autorisez le transfert local pour remplacer ce blocage par une permission limitee."},
+    "pair_firewall_failed": {"en": "Windows permission cancelled or unavailable. Check watch2notif in Windows Firewall, then generate a new QR.", "fr": "Autorisation Windows annulee ou indisponible. Verifiez watch2notif dans le pare-feu Windows, puis generez un nouveau QR."},
     "pair_used": {"en": "Encrypted configuration retrieved. Access is closed.", "fr": "Configuration chiffree recuperee. Acces ferme."},
     "pair_expired": {"en": "QR expired. Access is closed. Generate a new QR to try again.", "fr": "QR expire. Acces ferme. Generez un nouveau QR pour reessayer."},
     "pair_unavailable": {
