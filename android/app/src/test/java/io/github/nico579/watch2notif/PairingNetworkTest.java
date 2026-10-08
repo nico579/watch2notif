@@ -15,6 +15,7 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowConnectivityManager;
 import org.robolectric.shadows.ShadowNetwork;
+import org.robolectric.shadows.ShadowNetworkCapabilities;
 import org.robolectric.util.ReflectionHelpers;
 import org.robolectric.util.ReflectionHelpers.ClassParameter;
 import java.io.BufferedReader;
@@ -165,9 +166,9 @@ public class PairingNetworkTest {
 
     private android.net.Network addNetwork(ShadowConnectivityManager shadow, int id, int... transports) {
         android.net.Network network = ShadowNetwork.newInstance(id);
-        NetworkCapabilities.Builder capabilities = new NetworkCapabilities.Builder();
-        for (int transport : transports) capabilities.addTransportType(transport);
-        shadow.addNetwork(network, null); shadow.setNetworkCapabilities(network, capabilities.build());
+        NetworkCapabilities capabilities = ShadowNetworkCapabilities.newInstance();
+        for (int transport : transports) shadowOf(capabilities).addTransportType(transport);
+        shadow.addNetwork(network, null); shadow.setNetworkCapabilities(network, capabilities);
         return network;
     }
 
