@@ -71,6 +71,9 @@ function applyLanguage() {
     racine.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
       el.placeholder = t(el.dataset.i18nPlaceholder);
     });
+    racine.querySelectorAll('[data-i18n-href]').forEach((el) => {
+      el.href = t(el.dataset.i18nHref);
+    });
   });
   renderFeedKindOptions();
   renderServerInfo();
@@ -89,6 +92,8 @@ function renderServerInfo() {
 
 let providers = {};
 let defaultKind = 'rss';
+// Rempli par /api/state : faux si ANTHROPIC_API_KEY manque (voir filtre_ia.py).
+let cleIaPresente = true;
 let feedKeySeq = 0;
 
 // --- table des sources ----------------------------------------------------
@@ -175,6 +180,23 @@ function createFeedRow(feed) {
   filterInput.placeholder = t('filter_placeholder');
   filterInput.value = feed.filtre_ia || '';
   filterCell.appendChild(filterInput);
+  // Sans cle, une consigne ne trie rien : le dire ici, la ou on l'ecrit, plutot qu'a la
+  // premiere notification non triee.
+  if (!cleIaPresente) {
+    const keyNote = document.createElement('p');
+    keyNote.className = 'note filter-key-note';
+    const keyText = document.createElement('span');
+    keyText.dataset.i18n = 'filter_key_missing';
+    keyText.textContent = t('filter_key_missing');
+    const keyLink = document.createElement('a');
+    keyLink.target = '_blank';
+    keyLink.rel = 'noopener';
+    keyLink.textContent = 'README';
+    keyLink.href = t('filter_key_url');
+    keyLink.dataset.i18nHref = 'filter_key_url';
+    keyNote.append(keyText, ' ', keyLink);
+    filterCell.appendChild(keyNote);
+  }
   filterRow.appendChild(filterCell);
   filterRow.hidden = !filterInput.value;
   tr.filterInput = filterInput;
@@ -348,6 +370,7 @@ document.getElementById('history-clear-btn').addEventListener('click', async () 
   lang = (window.nico579Langue && window.nico579Langue.code()) || state.config.lang || 'en';
   providers = state.providers;
   defaultKind = state.default_kind;
+  cleIaPresente = state.cle_ia_presente !== false;
   serverInfo = { version: state.version, pid: state.pid };
 
   pauseCheck.checked = state.paused;

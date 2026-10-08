@@ -187,6 +187,38 @@ class ConfigurationEtNotification(unittest.TestCase):
         self.assertIn("veut garder ses clips | Bonjour", backend.call_args.kwargs["message"])
 
 
+class CleAbsenteSignalee(unittest.TestCase):
+    """Sans ANTHROPIC_API_KEY, la page le dit sous chaque consigne ; l'etat ne donne
+    qu'un booleen, jamais la cle."""
+
+    def etat(self, env):
+        routes, _ = notifier.build_api_routes(mock.Mock(is_set=lambda: False), mock.Mock(), mock.Mock())
+        with mock.patch.dict("os.environ", env, clear=True), \
+                mock.patch.object(notifier, "load_config", return_value={"feeds": [], "lang": "fr"}):
+            return routes["state"]()
+
+    def test_l_etat_dit_si_la_cle_est_la_sans_la_donner(self):
+        with mock.patch.object(notifier, "_installateur", return_value=mock.Mock()):
+            absente = self.etat({})
+            presente = self.etat({"ANTHROPIC_API_KEY": "sk-ant-secret"})
+        self.assertIs(absente["cle_ia_presente"], False)
+        self.assertIs(presente["cle_ia_presente"], True)
+        self.assertNotIn("sk-ant-secret", json.dumps(presente))
+
+    def test_la_page_affiche_l_avertissement_seulement_sans_cle(self):
+        js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("cleIaPresente = state.cle_ia_presente !== false;", js)
+        self.assertIn("if (!cleIaPresente) {", js)
+        self.assertIn("'filter_key_missing'", js)
+        for cle in ("filter_key_missing", "filter_key_url"):
+            self.assertEqual(set(notifier.i18n.STRINGS[cle]), {"en", "fr"}, cle)
+        self.assertTrue(notifier.i18n.STRINGS["filter_key_url"]["en"].endswith("#ai-filter-optional"))
+        readme = (notifier.GUI_DIR.parent / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## AI filter (optional)", readme)            # l'ancre du lien existe
+        readme_fr = (notifier.GUI_DIR.parent / "README.fr.md").read_text(encoding="utf-8")
+        self.assertIn("## Filtre IA (facultatif)", readme_fr)
+
+
 class Page(unittest.TestCase):
     def test_la_page_ecrit_et_relit_la_consigne(self):
         js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
