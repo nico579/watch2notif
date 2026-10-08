@@ -65,6 +65,16 @@ réseaux IPv4 privés (10/8, 172.16/12, 192.168/16).
 
 ## Surveillance et notifications
 
+Les providers gardent les mêmes identifiants `kind` que sur PC. Chaque type
+dispose de sa classe Java, derrière une interface commune et un registre qui
+alimente également le sélecteur de sources, leurs libellés, la validation et
+leurs intervalles par défaut. Les besoins de clés sont propres au provider ;
+le moteur de surveillance, le filtre Claude et les notifications sont communs.
+Ajouter un provider consiste à implémenter ce contrat et à l’enregistrer,
+sans ajouter de branchement dans le moteur ou l’écran. La compatibilité du
+transfert PC/Android demande le même identifiant et une implémentation sur
+chaque plateforme.
+
 - RSS 2.0, RSS 1.0/RDF et Atom ; issues GitHub, discussions et leurs réponses,
   Sponsors (utilisateur ou organisation), commentaires YouTube et réponses
   visibles dans le résultat de l’API.

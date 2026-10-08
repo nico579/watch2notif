@@ -2,10 +2,10 @@
 
 # watch2notif
 
-Petit outil desktop qui surveille des sources (flux RSS/Atom, issues
+Application pour PC et Android qui surveille des sources (flux RSS/Atom, issues
 GitHub, commentaires YouTube...) et affiche une notification native et
 cliquable quand quelque chose de nouveau apparait. Cross-platform
-(Windows/Linux/Mac).
+(Windows/Linux/macOS/Android).
 
 Parti d'un besoin de surveiller son inbox Reddit (via les flux RSS prives
 de reddit.com/prefs/feeds), puis generalise : n'importe quel flux
@@ -15,14 +15,6 @@ commentaires de video YouTube. Ajouter un nouveau type de source =
 ajouter un module dans `providers/`, rien d'autre a toucher.
 
 ## Captures d'ecran
-
-Une [version Android native](android/README.md) est disponible : notifications,
-historique, filtre Claude facultatif et réception des réglages/clé API du PC
-par QR chiffré, à usage unique et valable deux minutes sur le réseau local.
-L’APK signé et les bundles desktop sont construits et testés sur GitHub Actions,
-puis publiés ensemble dans les [releases](https://github.com/nico579/watch2notif/releases).
-Dans les réglages PC, **Envoyer vers le téléphone** affiche le QR ; sur Android,
-**Réglages → Scanner le QR du PC** récupère la configuration.
 
 ![Panneau de reglage](screenshots/settings.png)
 ![Menu du tray](screenshots/systray.png)
@@ -103,6 +95,49 @@ le programme de remplacement externe est pret, puis redemarre sur la
 nouvelle version. Si la preparation, le remplacement ou le redemarrage
 echoue, l'installation courante est conservee ou restauree. Une
 plateforme non prise en charge retombe sur la page de la release.
+
+### Application Android
+
+Télécharger **watch2notif-android.apk** dans la
+[dernière release GitHub](https://github.com/nico579/watch2notif/releases/latest),
+puis ouvrir le fichier sur le téléphone et autoriser son installation.
+L’APK signé et les bundles desktop sont construits et testés sur GitHub Actions,
+puis publiés ensemble. L’AAB Android est également disponible pour une boutique.
+La signature reste identique entre les releases ; une ancienne installation
+debug doit être désinstallée avant de passer à l’APK de release.
+
+L’application native fonctionne directement sur Android 8.0 ou plus récent,
+avec les mêmes types de sources, un historique et un filtre Claude facultatif
+par source. Autoriser les notifications pour recevoir les alertes. La
+surveillance automatique vérifie les sources au minimum toutes les 15 minutes ;
+le mode rapide utilise leurs intervalles avec une notification permanente.
+Android peut retarder la surveillance selon la batterie et la connectivité.
+Voir le [guide Android](android/README.md) pour les réglages et les limites.
+
+### Partager les réglages du PC vers Android
+
+1. Installer les versions PC et Android de la même release, puis connecter
+   les deux appareils au même réseau local.
+2. Sur le PC, cliquer **Envoyer vers le téléphone** dans l’onglet **Flux**.
+3. Sur Android, ouvrir **Réglages → Scanner le QR du PC**, autoriser la caméra,
+   scanner le QR et confirmer l’import.
+
+Les sources, leurs intervalles, leur activation, les consignes Claude et les
+clés `GITHUB_TOKEN`, `YOUTUBE_API_KEY` et `ANTHROPIC_API_KEY` du processus PC
+sont transférés avec un chiffrement authentifié AES-256-GCM. La clé de
+déchiffrement vient uniquement du QR. Le code expire après deux minutes,
+ne fonctionne qu’une fois et le PC referme le port après usage ou annulation.
+Aucun service cloud ni accès entrant permanent n’est nécessaire.
+
+L’import remplace les sources du téléphone et établit une référence initiale
+silencieuse. L’historique reste propre à chaque appareil. Les clés Android sont
+chiffrées dans le stockage privé de l’application avec Android Keystore.
+Ne pas diffuser le QR : il permet d’accéder à la configuration et aux clés.
+
+**Importer/Exporter un JSON** reste disponible sur les deux appareils pour
+les sources et les consignes Claude, sans clés API ni historique. Les URLs
+RSS privées peuvent toutefois contenir un token : privilégier le QR pour
+les transférer. Sur le PC, cliquer **Sauvegarder** après un import JSON.
 
 ## Construction et tests sur GitHub
 
@@ -246,6 +281,15 @@ Enregistrer ensuite le module dans le dict `PROVIDERS` de
 d'autre ne change : `notifier.py` et la page de reglages (`gui/`)
 recuperent tout provider enregistre via `PROVIDERS`, sans branchement
 specifique par provider.
+
+Android conserve ce principe avec une interface Java commune, une classe par
+provider et un registre dans [ProviderRegistry.java](android/app/src/main/java/io/github/nico579/watch2notif/ProviderRegistry.java).
+Le registre fournit les types disponibles, les libellés, les indications de
+saisie et les intervalles ; le moteur de surveillance et l’interface restent
+communs. Chaque provider valide sa source et gère ses propres besoins de clés.
+Pour ajouter un type sur les deux plateformes, fournir les implémentations
+Python et Java avec le même identifiant `kind`, puis ajouter sa compatibilité
+au format de transfert. Android exécute son implémentation native.
 
 ## Alternatives existantes
 

@@ -21,20 +21,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class Models {
-    static final String[] KINDS = {"rss", "github_issues", "github_discussion", "github_sponsors", "youtube_comments"};
-    static final int[] LABELS = {R.string.rss_label, R.string.github_issues_label, R.string.github_discussion_label,
-            R.string.github_sponsors_label, R.string.youtube_comments_label};
-    static final int[] HINTS = {R.string.rss_hint, R.string.github_issues_hint, R.string.github_discussion_hint,
-            R.string.github_sponsors_hint, R.string.youtube_comments_hint};
+    static final String[] KINDS = ProviderRegistry.BUILTINS.kinds();
+    static final int[] LABELS = ProviderRegistry.BUILTINS.labels();
+    static final int[] HINTS = ProviderRegistry.BUILTINS.hints();
     static final int MAX_SOURCES = 50;
 
     static int kindIndex(String kind) {
-        for (int i = 0; i < KINDS.length; i++) if (KINDS[i].equals(kind)) return i;
-        return -1;
+        return ProviderRegistry.BUILTINS.indexOf(kind);
     }
 
     static int defaultInterval(String kind) {
-        return "rss".equals(kind) ? 60 : "github_sponsors".equals(kind) ? 1800 : 300;
+        return ProviderRegistry.BUILTINS.require(kind).metadata().defaultInterval;
     }
 
     static boolean webLink(String value) {
@@ -109,17 +106,7 @@ final class Models {
                     || interval < 5 || interval > 604800 || kindIndex(kind) < 0) {
                 throw new IllegalArgumentException("source");
             }
-            switch (kind) {
-                case "rss": if (!webLink(this.url)) throw new IllegalArgumentException("rss"); break;
-                case "github_issues":
-                    if (!this.url.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) throw new IllegalArgumentException("repo"); break;
-                case "github_discussion":
-                    if (!this.url.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]{0,8}")) throw new IllegalArgumentException("discussion"); break;
-                case "github_sponsors":
-                    if (!this.url.matches("[A-Za-z0-9][A-Za-z0-9-]{0,38}")) throw new IllegalArgumentException("login"); break;
-                case "youtube_comments": videoId(this.url); break;
-                default: throw new IllegalArgumentException("kind");
-            }
+            ProviderRegistry.BUILTINS.require(kind).validateSource(this.url);
         }
 
         String fingerprint() { return hash(kind + "\n" + url); }

@@ -64,7 +64,7 @@ jobs:
             asset: watch2notif-linux-x86_64
             archive: tar
             notifier: dist/watch2notif/watch2notif
-          - os: macos-latest
+          - os: macos-15
             asset: watch2notif-macos-arm64
             archive: zip
             notifier: dist/watch2notif.app/Contents/MacOS/watch2notif

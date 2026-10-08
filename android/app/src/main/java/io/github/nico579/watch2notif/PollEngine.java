@@ -13,7 +13,7 @@ import static io.github.nico579.watch2notif.Models.*;
 final class PollEngine {
     private static final ReentrantLock POLL_LOCK = new ReentrantLock();
     interface AlertSender { boolean send(Context context, Feed feed, Entry entry); }
-    interface Credentials { String get(String name) throws Exception; }
+    interface Credentials extends Provider.Credentials { }
     static final class Report { int checked, sent, filtered; boolean busy; }
     private final Context context;
     private final Store store;
@@ -52,10 +52,7 @@ final class PollEngine {
                 }
                 report.checked++;
                 try {
-                    String github = "", youtube = "";
-                    if (snapshot.kind.startsWith("github_")) github = credentials.get("github");
-                    if (snapshot.kind.equals("youtube_comments")) youtube = credentials.get("youtube");
-                    List<Entry> entries = providers.fetch(snapshot, github, youtube);
+                    List<Entry> entries = providers.fetch(snapshot, credentials);
                     synchronized (store) {
                         if (!store.current(snapshot, manual)) continue;
                         PollState state = store.state(snapshot);

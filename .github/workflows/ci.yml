@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -77,7 +77,7 @@ jobs:
             notifier: dist/watch2notif/watch2notif
             output: dist/watch2notif/
             asset: watch2notif-linux-x86_64
-          - os: macos-latest
+          - os: macos-15
             notifier: dist/watch2notif.app/Contents/MacOS/watch2notif
             output: dist/watch2notif.app/
             asset: watch2notif-macos-arm64
@@ -111,7 +111,7 @@ jobs:
           if-no-files-found: error
 
   # Chaque système de construction de release.yml (windows-latest,
-  # ubuntu-22.04, macos-latest) doit pouvoir installer les deux verrous, avec
+  # ubuntu-22.04, macos-15) doit pouvoir installer les deux verrous, avec
   # son Python 3.12 : un verrou régénéré qui choisirait une version sans roue
   # pour l'un d'eux casserait sa construction, le jour de la release. Les
   # paquets livrés en source sont listés par système, exactement : un nouveau
