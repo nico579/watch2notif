@@ -14,6 +14,14 @@ added as a `providers/` module, nothing else to touch.
 
 ## Screenshots
 
+A [native Android app](android/README.md) supports notifications, history,
+optional Claude filtering and encrypted configuration/API-key transfer from
+the desktop over the LAN. Click **Send to phone** on the PC and scan its
+single-use, two-minute QR in Android Settings. Signed Android APKs and desktop
+bundles are built and tested on GitHub Actions and published together in
+[GitHub releases](https://github.com/nico579/watch2notif/releases).
+Ordinary JSON source import/export is also available.
+
 ![Settings panel](screenshots/settings_en.png)
 ![Tray menu](screenshots/systray_en.png)
 ![Notification history](screenshots/history_en.png)
@@ -87,15 +95,17 @@ external updater is ready, then restarts on the new version. If
 preparation, replacement, or restart fails, the current installation is
 kept or restored. Unsupported platforms fall back to the release page.
 
-## Building the bundle yourself
+## Builds and tests on GitHub
 
-```bash
-python build.py
-```
+GitHub Actions builds Windows, Linux and macOS bundles plus the Android APK
+and AAB on each `v*` tag. Publication requires Python tests on all three OSes,
+Android/Robolectric tests, Android Lint and executable smoke checks to pass.
+No locally compiled binary is uploaded to releases.
 
-Creates an isolated build environment (`build_venv/`) and produces
-`dist/watch2notif/` with the executable. See `.github/workflows/release.yml`
-for the automated build across the three OSes on every `v*` tag.
+Pull requests and changes to `master` also run CI. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml),
+[android.yml](.github/workflows/android.yml) and
+[release.yml](.github/workflows/release.yml).
 
 ## Sources
 

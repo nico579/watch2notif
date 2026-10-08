@@ -1,0 +1,441 @@
+package io.github.nico579.watch2notif;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.text.InputType;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.Switch;
+import android.widget.TextView;
+import android.widget.Toast;
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+import androidx.core.content.ContextCompat;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+import static io.github.nico579.watch2notif.Models.*;
+
+public final class MainActivity extends Activity {
+    private static final int IMPORT = 10, EXPORT = 11, PERMISSION = 12;
+    private Store store;
+    private LinearLayout root, content;
+    private ScrollView scroll;
+    private int selectedTab;
+    private boolean refreshing, receiverRegistered;
+    private String exportDocument;
+    private final BroadcastReceiver updates = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) { if (selectedTab != 2) render(); }
+    };
+
+    @Override protected void attachBaseContext(Context base) { super.attachBaseContext(Localisation.context(base)); }
+
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        if (state != null) { selectedTab = state.getInt("tab"); exportDocument = state.getString("export_document"); }
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(color(R.color.background));
+        try { store = Store.get(this); render(); }
+        catch (RuntimeException error) {
+            TextView message = text(getString(R.string.error_storage), 18, R.color.warning);
+            message.setPadding(dp(24), dp(64), dp(24), dp(24)); setContentView(message);
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (store == null) return;
+        if (!receiverRegistered) {
+            ContextCompat.registerReceiver(this, updates, new IntentFilter(WatchApp.UPDATED), ContextCompat.RECEIVER_NOT_EXPORTED);
+            receiverRegistered = true;
+        }
+        if (selectedTab != 2) render();
+    }
+
+    @Override protected void onPause() {
+        if (receiverRegistered) { unregisterReceiver(updates); receiverRegistered = false; }
+        super.onPause();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putInt("tab", selectedTab); state.putString("export_document", exportDocument);
+        super.onSaveInstanceState(state);
+    }
+
+    private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private int color(int id) { return getColor(id); }
+    private LinearLayout column() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.VERTICAL); return view; }
+    private LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setOrientation(LinearLayout.HORIZONTAL); view.setGravity(Gravity.CENTER_VERTICAL); return view; }
+    private LinearLayout.LayoutParams space(int top) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(top); return params;
+    }
+    private TextView text(String value, int size, int colorId) {
+        TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setTextColor(color(colorId));
+        view.setLineSpacing(dp(3), 1); return view;
+    }
+    private TextView heading(String value, int size) { TextView view = text(value, size, R.color.foreground); view.setTypeface(null, Typeface.BOLD); return view; }
+    private GradientDrawable background(int fill, int border) {
+        GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color(fill)); drawable.setCornerRadius(dp(16));
+        drawable.setStroke(dp(1), color(border)); return drawable;
+    }
+    private Button button(int label, boolean primary, View.OnClickListener listener) {
+        Button button = new Button(this); button.setText(label); button.setAllCaps(false); button.setTextSize(14);
+        button.setTextColor(primary ? color(R.color.background) : color(R.color.foreground));
+        button.setBackground(background(primary ? R.color.accent : R.color.surface, primary ? R.color.accent : R.color.border));
+        button.setPadding(dp(12), dp(10), dp(12), dp(10)); button.setMinHeight(dp(48));
+        button.setOnClickListener(listener); return button;
+    }
+    private void addButton(LinearLayout parent, int label, boolean primary, View.OnClickListener listener) { parent.addView(button(label, primary, listener), space(12)); }
+    private LinearLayout card() {
+        LinearLayout view = column(); view.setBackground(background(R.color.surface, R.color.border));
+        view.setPadding(dp(18), dp(18), dp(18), dp(18)); content.addView(view, space(12)); return view;
+    }
+    private void note(LinearLayout parent, int label) { parent.addView(text(getString(label), 13, R.color.muted), space(10)); }
+    private EditText field(LinearLayout parent, int label, String value, boolean password) {
+        parent.addView(text(getString(label), 13, R.color.muted), space(14));
+        EditText input = new EditText(this); input.setText(value); input.setTextSize(16); input.setSingleLine(true);
+        input.setInputType(password ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_CLASS_TEXT);
+        input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        parent.addView(input, space(2)); return input;
+    }
+
+    private void render() {
+        if (store == null || isFinishing() || isDestroyed()) return;
+        int previousScroll = scroll == null ? 0 : scroll.getScrollY();
+        root = column(); root.setBackgroundColor(color(R.color.background));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets padding = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                root.setPadding(padding.left, padding.top, padding.right, padding.bottom);
+            } else root.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        LinearLayout header = row(); header.setPadding(dp(20), dp(20), dp(20), dp(16));
+        ImageView logo = new ImageView(this); logo.setImageResource(R.mipmap.ic_launcher); logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        header.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout titles = column(); titles.setPadding(dp(12), 0, 0, 0);
+        titles.addView(heading("watch2notif", 24)); titles.addView(text(getString(R.string.tagline), 12, R.color.muted));
+        header.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1)); root.addView(header);
+        LinearLayout tabs = row(); tabs.setPadding(dp(16), 0, dp(16), dp(8));
+        int[] labels = {R.string.sources, R.string.history, R.string.settings};
+        for (int i = 0; i < labels.length; i++) {
+            final int tab = i;
+            Button navigation = button(labels[i], i == selectedTab, view -> { selectedTab = tab; scroll = null; render(); });
+            navigation.setSelected(i == selectedTab);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1);
+            if (i > 0) params.setMarginStart(dp(6)); tabs.addView(navigation, params);
+        }
+        root.addView(tabs); scroll = new ScrollView(this); scroll.setFillViewport(true);
+        content = column(); content.setPadding(dp(16), 0, dp(16), dp(28)); scroll.addView(content);
+        root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        if (selectedTab == 0) sources(); else if (selectedTab == 1) history(); else settings();
+        setContentView(root); root.requestApplyInsets();
+        scroll.post(() -> scroll.scrollTo(0, previousScroll));
+    }
+
+    private void sources() {
+        LinearLayout status = card(); status.addView(text(getString(R.string.monitoring).toUpperCase(getResources().getConfiguration().getLocales().get(0)), 12, R.color.muted));
+        status.addView(heading(getString(store.paused() ? R.string.paused : LivePollService.running ? R.string.live : R.string.automatic), 19), space(8));
+        List<Feed> feeds = store.feeds(); long active = feeds.stream().filter(feed -> feed.enabled).count();
+        status.addView(text(getString(R.string.source_count, active, feeds.size()), 14, R.color.success), space(8));
+        addButton(status, store.paused() ? R.string.resume : R.string.pause, false, view -> changePause());
+        Button refresh = button(refreshing ? R.string.checking : R.string.refresh, true, view -> refresh());
+        refresh.setEnabled(!refreshing && active > 0); status.addView(refresh, space(12));
+        Button live = button(LivePollService.running ? R.string.stop_live : R.string.start_live, false, view -> toggleLive());
+        live.setEnabled(active > 0 && !store.paused()); status.addView(live, space(12)); note(status, R.string.background_note);
+        if (!Notifications.allowed(this)) {
+            LinearLayout notice = card(); notice.addView(text(getString(R.string.notifications_denied), 14, R.color.warning));
+            addButton(notice, R.string.allow_notifications, false, view -> notificationPermission());
+        }
+        addButton(content, R.string.add_source, true, view -> edit(null));
+        if (feeds.isEmpty()) {
+            LinearLayout empty = card(); empty.addView(heading(getString(R.string.no_sources), 20)); note(empty, R.string.no_sources_body);
+        }
+        for (Feed feed : feeds) {
+            LinearLayout card = card(), top = row();
+            TextView title = heading(feed.label, 18); top.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            Switch enabled = new Switch(this); enabled.setContentDescription(feed.label + " · " + getString(R.string.source_enabled)); enabled.setChecked(feed.enabled);
+            enabled.setOnCheckedChangeListener((control, value) -> {
+                try { store.putFeed(feed.withEnabled(value)); Scheduler.sync(this); if (value) Scheduler.initialCheck(this); render(); }
+                catch (Exception failure) { toast(R.string.error_storage); }
+            });
+            top.addView(enabled); card.addView(top);
+            card.addView(text(getString(LABELS[kindIndex(feed.kind)]) + " · " + feed.interval + " s", 12, R.color.accent), space(6));
+            String address = feed.url;
+            if (feed.kind.equals("rss")) { Uri uri = Uri.parse(address); address = uri.getHost() + (uri.getPath() == null ? "" : uri.getPath()); }
+            card.addView(text(address, 13, R.color.muted), space(6));
+            PollState state = store.state(feed);
+            String message = !feed.enabled ? getString(R.string.source_disabled) : state.lastAttempt == 0 ? getString(R.string.never_checked)
+                    : getString(R.string.last_checked, date(state.lastAttempt));
+            card.addView(text(message, 12, R.color.muted), space(10));
+            if (!state.error.isEmpty()) card.addView(text(getString(SourceException.message(state.error), state.httpCode), 13, R.color.warning), space(6));
+            if (!state.pending.isEmpty()) card.addView(text(getString(R.string.pending_notifications, state.pending.size()), 13, R.color.warning), space(6));
+            if (!feed.filter.trim().isEmpty()) {
+                card.addView(text(getString(R.string.ai_filter_active), 12, R.color.accent), space(6));
+                try { if (new SecretStore(this).get("claude").trim().isEmpty()) card.addView(text(getString(R.string.ai_key_missing), 13, R.color.warning), space(6)); }
+                catch (Exception failure) { card.addView(text(getString(R.string.credentials_failed), 13, R.color.warning), space(6)); }
+            }
+            addButton(card, R.string.edit_source, false, view -> edit(feed));
+        }
+    }
+
+    private void changePause() {
+        try { store.paused(!store.paused()); Scheduler.sync(this); if (!store.paused()) Scheduler.initialCheck(this); render(); }
+        catch (Exception failure) { toast(R.string.error_storage); }
+    }
+
+    private void refresh() {
+        if (refreshing) return; refreshing = true; render();
+        WatchApp.IO.execute(() -> {
+            PollEngine.Report report = new PollEngine(this).poll(true);
+            runOnUiThread(() -> {
+                refreshing = false;
+                if (!isDestroyed()) {
+                    Toast.makeText(this, report.busy ? getString(R.string.check_busy) : getString(R.string.check_finished, report.checked, report.sent)
+                            + (report.filtered > 0 ? "\n" + getString(R.string.check_filtered, report.filtered) : ""), Toast.LENGTH_LONG).show(); render();
+                }
+            });
+        });
+    }
+
+    private void toggleLive() {
+        if (LivePollService.running) { stopService(new Intent(this, LivePollService.class)); return; }
+        if (!Notifications.allowed(this)) { notificationPermission(); return; }
+        new AlertDialog.Builder(this).setTitle(R.string.start_live).setMessage(R.string.live_explanation)
+                .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.start_live, (dialog, which) -> {
+                    try { startForegroundService(new Intent(this, LivePollService.class)); }
+                    catch (RuntimeException failure) { toast(R.string.live_unavailable); }
+                }).show();
+    }
+
+    private void notificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                && !getPreferences(MODE_PRIVATE).getBoolean("notification_permission_asked", false)) {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("notification_permission_asked", true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, PERMISSION);
+        } else {
+            startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results); render();
+    }
+
+    private void edit(Feed existing) {
+        LinearLayout form = column(); form.setPadding(dp(20), dp(4), dp(20), dp(20));
+        EditText name = field(form, R.string.source_name, existing == null ? "" : existing.label, false);
+        form.addView(text(getString(R.string.source_type), 13, R.color.muted), space(14));
+        Spinner kind = new Spinner(this); String[] options = new String[KINDS.length];
+        for (int i = 0; i < options.length; i++) options[i] = getString(LABELS[i]);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, options);
+        kind.setAdapter(adapter); kind.setSelection(existing == null ? 0 : kindIndex(existing.kind)); form.addView(kind, space(2));
+        EditText address = field(form, R.string.source_address, existing == null ? "" : existing.url, false);
+        address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        EditText interval = field(form, R.string.source_interval, String.valueOf(existing == null ? 60 : existing.interval), false);
+        interval.setInputType(InputType.TYPE_CLASS_NUMBER);
+        Switch enabled = new Switch(this); enabled.setText(R.string.source_enabled); enabled.setChecked(existing == null || existing.enabled); form.addView(enabled, space(14));
+        EditText rule = field(form, R.string.ai_filter, existing == null ? "" : existing.filter, false);
+        rule.setSingleLine(false); rule.setMinLines(2); rule.setMaxLines(5); rule.setGravity(Gravity.TOP | Gravity.START); rule.setHint(R.string.ai_filter_hint);
+        rule.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        note(form, R.string.ai_filter_note);
+        final int[] previousKind = {kind.getSelectedItemPosition()};
+        address.setHint(HINTS[previousKind[0]]);
+        kind.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                address.setHint(HINTS[position]);
+                if (position != previousKind[0]) interval.setText(String.valueOf(defaultInterval(KINDS[position])));
+                previousKind[0] = position;
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        ScrollView scroller = new ScrollView(this); scroller.addView(form);
+        AlertDialog.Builder builder = new AlertDialog.Builder(this).setTitle(existing == null ? R.string.add_source : R.string.edit_source)
+                .setView(scroller).setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.save, null);
+        if (existing != null) builder.setNeutralButton(R.string.delete, (dialog, which) -> new AlertDialog.Builder(this)
+                .setMessage(getString(R.string.delete_source_question, existing.label)).setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.delete, (confirmation, item) -> {
+                    try { store.deleteFeed(existing.key); Scheduler.sync(this); render(); } catch (Exception failure) { toast(R.string.error_storage); }
+                }).show());
+        AlertDialog dialog = builder.create(); dialog.setOnShowListener(shown -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            try {
+                Feed feed = new Feed(existing == null ? UUID.randomUUID().toString() : existing.key, name.getText().toString(),
+                        KINDS[kind.getSelectedItemPosition()], address.getText().toString(), Integer.parseInt(interval.getText().toString()),
+                        enabled.isChecked(), rule.getText().toString());
+                store.putFeed(feed); Scheduler.sync(this); Scheduler.initialCheck(this); dialog.dismiss(); render();
+            } catch (IllegalArgumentException failure) { toast(existing == null && store.feeds().size() >= MAX_SOURCES ? R.string.source_limit : R.string.invalid_source); }
+            catch (Exception failure) { toast(R.string.error_storage); }
+        })); dialog.show();
+    }
+
+    private void history() {
+        note(content, R.string.history_note);
+        JSONArray rows = store.history();
+        if (rows.length() == 0) {
+            LinearLayout empty = card(); empty.addView(heading(getString(R.string.empty_history), 20)); note(empty, R.string.empty_history_body); return;
+        }
+        addButton(content, R.string.clear_history, false, view -> new AlertDialog.Builder(this).setMessage(R.string.clear_history_question)
+                .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.clear_history, (dialog, which) -> {
+                    try { store.clearHistory(); render(); } catch (Exception failure) { toast(R.string.error_storage); }
+                }).show());
+        for (int i = 0; i < rows.length(); i++) {
+            JSONObject item = rows.optJSONObject(i); if (item == null) continue;
+            LinearLayout card = card(); card.addView(text(str(item, "feed_label", "") + " · " + date((long)(item.optDouble("timestamp") * 1000)), 12, R.color.accent));
+            card.addView(heading(str(item, "title", getString(R.string.untitled)), 17), space(6));
+            card.addView(text(str(item, "author", "") + " · " + compact(str(item, "summary", ""), 400), 14, R.color.muted), space(6));
+            card.setOnClickListener(view -> openLink(str(item, "link", ""))); card.setFocusable(true);
+        }
+    }
+
+    private void settings() {
+        LinearLayout pairing = card(); pairing.addView(heading(getString(R.string.pair_title), 18)); note(pairing, R.string.pair_note);
+        addButton(pairing, R.string.pair_receive, true, view -> new IntentIntegrator(this)
+                .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt(getString(R.string.pair_scan))
+                .setBeepEnabled(false).setOrientationLocked(false).initiateScan());
+        LinearLayout language = card(); language.addView(heading(getString(R.string.language), 18));
+        Spinner selector = new Spinner(this); String[] languages = {getString(R.string.language_system), "Français", "English"};
+        selector.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages));
+        selector.setSelection(store.language().equals("fr") ? 1 : store.language().equals("en") ? 2 : 0); language.addView(selector, space(8));
+        selector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String value = position == 1 ? "fr" : position == 2 ? "en" : "";
+                if (!value.equals(store.language())) {
+                    try { store.language(value); Notifications.channels(MainActivity.this); recreate(); } catch (Exception failure) { toast(R.string.error_storage); }
+                }
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        LinearLayout credentials = card(); credentials.addView(heading(getString(R.string.credentials), 18)); note(credentials, R.string.credentials_note);
+        String github = "", youtube = "", claude = "";
+        SecretStore secret = new SecretStore(this);
+        try { github = secret.get("github"); youtube = secret.get("youtube"); claude = secret.get("claude"); }
+        catch (Exception failure) { credentials.addView(text(getString(R.string.credentials_failed), 14, R.color.warning), space(8)); }
+        EditText githubField = field(credentials, R.string.github_token, github, true), youtubeField = field(credentials, R.string.youtube_key, youtube, true);
+        EditText claudeField = field(credentials, R.string.claude_key, claude, true);
+        addButton(credentials, R.string.save_credentials, true, view -> {
+            try { secret.save(githubField.getText().toString(), youtubeField.getText().toString(), claudeField.getText().toString()); toast(R.string.saved); }
+            catch (Exception failure) { toast(R.string.credentials_failed); }
+        });
+        LinearLayout config = card(); config.addView(heading(getString(R.string.configuration), 18)); note(config, R.string.import_note);
+        addButton(config, R.string.import_config, false, view -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"});
+            try { startActivityForResult(intent, IMPORT); } catch (ActivityNotFoundException failure) { toast(R.string.file_error); }
+        });
+        addButton(config, R.string.export_config, false, view -> {
+            try {
+                exportDocument = store.exportConfig().toString(2);
+                startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("application/json").putExtra(Intent.EXTRA_TITLE, "watch2notif-config.json"), EXPORT);
+            } catch (Exception failure) { toast(R.string.file_error); }
+        });
+        addButton(config, R.string.notification_settings, false, view -> notificationPermission());
+        LinearLayout about = card(); about.addView(heading(getString(R.string.about), 18));
+        about.addView(text(getString(R.string.about_text, BuildConfig.VERSION_NAME), 14, R.color.muted), space(10));
+        addButton(about, R.string.project_link, false, view -> openLink("https://github.com/nico579/watch2notif"));
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent intent) {
+        super.onActivityResult(request, result, intent);
+        IntentResult scan = IntentIntegrator.parseActivityResult(request, result, intent);
+        if (scan != null) {
+            if (scan.getContents() != null) receiveFromPc(scan.getContents());
+            return;
+        }
+        if (result != RESULT_OK || intent == null || intent.getData() == null) return;
+        Uri uri = intent.getData();
+        if (request == EXPORT) {
+            final String document = exportDocument; exportDocument = null;
+            WatchApp.IO.execute(() -> {
+                try (OutputStream output = getContentResolver().openOutputStream(uri, "wt")) {
+                    if (output == null || document == null) throw new IllegalStateException();
+                    output.write(document.getBytes(StandardCharsets.UTF_8)); runOnUiThread(() -> toast(R.string.exported));
+                } catch (Exception failure) { runOnUiThread(() -> toast(R.string.file_error)); }
+            });
+        } else if (request == IMPORT) {
+            WatchApp.IO.execute(() -> {
+                try (InputStream input = getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                    if (input == null) throw new IllegalStateException();
+                    byte[] buffer = new byte[4096]; int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        if (output.size() + count > 1024 * 1024) throw new IllegalArgumentException(); output.write(buffer, 0, count);
+                    }
+                    List<Feed> feeds = Feed.importConfig(new JSONObject(output.toString(StandardCharsets.UTF_8.name())));
+                    runOnUiThread(() -> new AlertDialog.Builder(this).setTitle(R.string.import_config)
+                            .setMessage(getString(R.string.import_question, feeds.size())).setNegativeButton(R.string.cancel, null)
+                            .setPositiveButton(R.string.import_config, (dialog, which) -> {
+                                try { store.replaceFeeds(feeds); Scheduler.sync(this); Scheduler.initialCheck(this); toast(R.string.imported); render(); }
+                                catch (Exception failure) { toast(R.string.error_storage); }
+                            }).show());
+                } catch (Exception failure) { runOnUiThread(() -> toast(R.string.invalid_config)); }
+            });
+        }
+    }
+
+    private void receiveFromPc(String qr) {
+        toast(R.string.pair_receiving);
+        WatchApp.IO.execute(() -> {
+            try {
+                PairingClient.Received received = PairingClient.receive(qr);
+                runOnUiThread(() -> {
+                    if (isDestroyed()) return;
+                    new AlertDialog.Builder(this).setTitle(R.string.pair_title)
+                            .setMessage(getString(R.string.pair_import_question, received.feeds.size(),
+                                    (received.github.isEmpty() ? 0 : 1) + (received.youtube.isEmpty() ? 0 : 1) + (received.claude.isEmpty() ? 0 : 1)))
+                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.import_config, (dialog, which) -> {
+                                try {
+                                    SecretStore secrets = new SecretStore(this);
+                                    String github = received.github.isEmpty() ? secrets.get("github") : received.github;
+                                    String youtube = received.youtube.isEmpty() ? secrets.get("youtube") : received.youtube;
+                                    String claude = received.claude.isEmpty() ? secrets.get("claude") : received.claude;
+                                    store.replaceFeeds(received.feeds, secrets.encrypted(github, youtube, claude));
+                                    Scheduler.sync(this); Scheduler.initialCheck(this); toast(R.string.pair_imported); render();
+                                } catch (Exception failure) { toast(R.string.credentials_failed); }
+                            }).show();
+                });
+            } catch (SourceException failure) {
+                runOnUiThread(() -> toast("pair_invalid".equals(failure.code) ? R.string.pair_invalid
+                        : "pair_expired".equals(failure.code) ? R.string.pair_expired : R.string.pair_network));
+            }
+        });
+    }
+
+    private String date(long milliseconds) { return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(milliseconds)); }
+    private void toast(int message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+    private void openLink(String address) {
+        if (!Models.webLink(address)) { toast(R.string.no_link); return; }
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(address))); }
+        catch (ActivityNotFoundException failure) { toast(R.string.no_browser); }
+    }
+}

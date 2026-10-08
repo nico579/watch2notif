@@ -16,6 +16,14 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
 
 ## Captures d'ecran
 
+Une [version Android native](android/README.md) est disponible : notifications,
+historique, filtre Claude facultatif et réception des réglages/clé API du PC
+par QR chiffré, à usage unique et valable deux minutes sur le réseau local.
+L’APK signé et les bundles desktop sont construits et testés sur GitHub Actions,
+puis publiés ensemble dans les [releases](https://github.com/nico579/watch2notif/releases).
+Dans les réglages PC, **Envoyer vers le téléphone** affiche le QR ; sur Android,
+**Réglages → Scanner le QR du PC** récupère la configuration.
+
 ![Panneau de reglage](screenshots/settings.png)
 ![Menu du tray](screenshots/systray.png)
 ![Historique des notifications](screenshots/history.png)
@@ -96,16 +104,18 @@ nouvelle version. Si la preparation, le remplacement ou le redemarrage
 echoue, l'installation courante est conservee ou restauree. Une
 plateforme non prise en charge retombe sur la page de la release.
 
-## Construire le bundle soi-meme
+## Construction et tests sur GitHub
 
-```bash
-python build.py
-```
+GitHub Actions construit les bundles Windows, Linux et macOS ainsi que l’APK
+et l’AAB Android à chaque étiquette `v*`. Les tests Python sur les trois OS,
+les tests Android/Robolectric, Android Lint et le lancement de contrôle des
+exécutables conditionnent la publication. Aucun binaire construit localement
+n’est téléversé dans les releases.
 
-Cree un environnement de construction isole (`build_venv/`) et produit
-`dist/watch2notif/` avec l'executable. Voir
-`.github/workflows/release.yml` pour la construction automatisee sur les
-trois OS a chaque etiquette `v*`.
+Les pull requests et les changements de `master` exécutent également la CI.
+Voir [.github/workflows/ci.yml](.github/workflows/ci.yml),
+[android.yml](.github/workflows/android.yml) et
+[release.yml](.github/workflows/release.yml).
 
 ## Sources
 

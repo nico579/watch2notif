@@ -1,0 +1,71 @@
+{
+  "note": "TEST ONLY: public dummy keys; Python AESGCM to Android Cipher interoperability vector.",
+  "qr": {
+    "type": "watch2notif-pair",
+    "version": 1,
+    "url": "http://192.168.1.2:54321/v1/config",
+    "code": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
+    "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "expires_at": 1900000000
+  },
+  "response": {
+    "version": 1,
+    "nonce": "AAECAwQFBgcICQoL",
+    "ciphertext": "PCCmdKmJnXLjNfL5x4gUMvCz5FueHyxeAkfTtTFJItRkdcqPjfsyww-GFIjxpRIYzC0F_i77k_gTtwh1eYGQgtIG5liholVDMHSIBYbhasoCqusQBRBxRN3f674U0oOt6ZAtktQy8jWxeUbTJQVNGpQIEMzMo0D_KcAnv-uQD3reb3Sjx6PmPGaNMYMR-m6rWICGR0Nw_xX_OosYlLaazKm3qCXF3-4byQK_lrrkpIG9urhX7odTngO2rLMDoOiacm6w2i-Os7xbM76D1DX56IQN2AdIZcmFGP70tG9q8tZjWPbEg1khH3JlzG3GZVFgir-ZV_FR68B7SV1Tqfsr9XykkM_0qTtLEqxQK5cPUWO00Oj3oKnmxgVHGDNVnck4dGatapbl7GLgUBhgKrfOuvulbmlwu7h27FJ1JPlSMYCvt1MKqQkWncaSDUExjG4H8HW54O82vyh6k0hKrZMtkThNlbzhdkjrVN3RRruVQE7tkWsLi65poL3fFP7-KnUS3qGrvP4l6fyDBJsMSm0gpc4rTtf-Qje4Hyr-ZCqPzz5sGAgPqqIyB9PLtT2R2pyFfwAtfHihGsXF3oqZ7t59Jx4T3b7bJMwUhHTCe9G2oCMFqFFy4fR3XyzwjYk-iOfAeocbb_jntqhymza-yoDNovnCpf9P2IBM6HH0PqiGN2-DVsrLjwHwd2PejxxYfgTcpYgbThwOt5ivRyZe2yBs1TNmV6XWZ5IpTfh33egEPpRklbcd2aAHESfUCOyqAuYwEYimLA4gFSu51N725sc-92j47dtn-tPDli3RzE28CeeXYvBDrh_B9GrorOx-FbknCrFoDRbJy7M5KCkws7_ERRDmtGKa4zq4eboIVIReYcsdGOredE3jznr6jNTgybjv5vsmT3QuGn6NBa7adTJXqE9jo9Qbs7iSmolWCflQMjMli_4oJAuoQEQ5Z5q-k1bzVH8ceYhotIOomvysg6Dyv8EnSb6OonKteKPqY5-kbo5vMVIziG_L1YzAm_ioEu76iY5ePqFtvJLy8DHER364l_63cxmdop3yA4OXaa-S7_fFpy4pFaUyu07Wie2eYUTVlVtkhFe46L5CErbZVyH-01KRNhbYzeGx4MjPsvoomcV5shc5IWHQRApUg5zAfNiAYRqCL5qhwifuhY5_4Vwr8fTwnz-QF7_17-qPF6itdYwhv4KorsNGTh1l9KEkWOkFUPd8pB7XrsF6z75IsLd1oc-aWV1Ek7OPKgAQULQnT3mHhXHSI0rIkuNH2wZiIBTfUH21bsN2heRasNporit7onJIX7KTeCgwO9KJTdzY8SaJi4BkY5sXSbDbI5BkgH4_8M6DxmZEThr1knNVecYyq-YLWyWzTU1QcLA"
+  },
+  "expected": {
+    "poll_interval_seconds": 60,
+    "feeds": [
+      {
+        "key": "test-0",
+        "label": "rss",
+        "kind": "rss",
+        "url": "https://example.org/feed?private=test-only",
+        "interval_seconds": 60,
+        "enabled": true,
+        "filtre_ia": "Seulement les questions."
+      },
+      {
+        "key": "test-1",
+        "label": "github_issues",
+        "kind": "github_issues",
+        "url": "nico579/watch2notif",
+        "interval_seconds": 300,
+        "enabled": true,
+        "filtre_ia": ""
+      },
+      {
+        "key": "test-2",
+        "label": "github_discussion",
+        "kind": "github_discussion",
+        "url": "nico579/watch2notif#123",
+        "interval_seconds": 300,
+        "enabled": true,
+        "filtre_ia": ""
+      },
+      {
+        "key": "test-3",
+        "label": "github_sponsors",
+        "kind": "github_sponsors",
+        "url": "nico579",
+        "interval_seconds": 300,
+        "enabled": false,
+        "filtre_ia": ""
+      },
+      {
+        "key": "test-4",
+        "label": "youtube_comments",
+        "kind": "youtube_comments",
+        "url": "https://youtu.be/dQw4w9WgXcQ",
+        "interval_seconds": 300,
+        "enabled": true,
+        "filtre_ia": ""
+      }
+    ],
+    "credentials": {
+      "github_token": "github-test-value",
+      "youtube_api_key": "youtube-test-value",
+      "anthropic_api_key": "claude-test-value"
+    }
+  }
+}

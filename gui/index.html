@@ -42,6 +42,14 @@
     <button type="button" id="add-feed-btn" data-i18n="add_feed_button"></button>
     <p id="note-text" class="note" data-i18n="note_text"></p>
 
+    <div class="transfer-row">
+      <button type="button" id="pair-start-btn" data-i18n="pair_send_button"></button>
+      <button type="button" id="config-import-btn" data-i18n="config_import_button"></button>
+      <button type="button" id="config-export-btn" data-i18n="config_export_button"></button>
+      <input type="file" id="config-import-file" accept="application/json,.json" hidden>
+    </div>
+    <p class="note" data-i18n="config_transfer_note"></p>
+
     <div class="save-row">
       <span id="save-status" class="save-status"></span>
       <button type="button" id="save-btn" data-i18n="save_button"></button>
@@ -63,6 +71,14 @@
     <button type="button" id="history-clear-btn" data-i18n="history_clear_button"></button>
   </section>
 </main>
+
+<dialog id="pair-dialog">
+  <h2 data-i18n="pair_title"></h2>
+  <p class="note" data-i18n="pair_note"></p>
+  <img id="pair-qr" alt="" width="340" height="340">
+  <p id="pair-status" class="note" aria-live="polite"></p>
+  <button type="button" id="pair-close-btn" data-i18n="pair_close_button"></button>
+</dialog>
 
 <script src="/app.js"></script>
 <script src="/nico579-maj.js"></script>

@@ -33,7 +33,9 @@ from nico579_commons import atomique, demarrage, environnement, langue, maj, maj
 from nico579_commons import tray as apptray
 
 import autostart_manager
+import config_transfer
 import filtre_ia
+import lan_pairing
 import data_paths
 import i18n
 import notification_history
@@ -763,6 +765,30 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         notification_history.clear()
         return {"ok": True}
 
+    def _api_validate_config(payload: dict) -> dict:
+        try:
+            return {"ok": True, "config": config_transfer.portable_config(payload)}
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "invalid_config"}
+
+    def _api_pair_start(payload: dict) -> dict:
+        try:
+            portable = config_transfer.portable_config(payload)
+            portable["credentials"] = {
+                "github_token": os.environ.get("GITHUB_TOKEN", "").strip(),
+                "youtube_api_key": os.environ.get("YOUTUBE_API_KEY", "").strip(),
+                "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", "").strip(),
+            }
+            return lan_pairing.manager.start(portable)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "invalid_config"}
+        except Exception:
+            return {"ok": False, "error": "pair_unavailable"}
+
+    def _api_pair_cancel(_payload: dict) -> dict:
+        lan_pairing.manager.close()
+        return {"ok": True}
+
     # Le bandeau de mise a jour de la page est celui du commun
     # (nico579_commons.maj_install.routes, maj_banniere.js) : /api/maj et
     # /api/maj-installer.
@@ -790,9 +816,13 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
     routes_langue_get, routes_langue_post = langue.routes(_lire_langue, _ecrire_langue)
 
     api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history,
+                  "pair-status": lan_pairing.manager.status,
                   **routes_maj_get, **routes_demarrage_get, **routes_langue_get}
     post_routes = {
         "save-config": _api_save_config,
+        "validate-config": _api_validate_config,
+        "pair-start": _api_pair_start,
+        "pair-cancel": _api_pair_cancel,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
         **routes_maj_post,

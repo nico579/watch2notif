@@ -9,6 +9,10 @@ feedparser
 # Dossier d'état standard de l'OS
 platformdirs
 
+# Appairage Android : configuration chiffree et QR affiche sur le PC.
+cryptography
+qrcode
+
 # Notifications du système : un paquet par système, chacun installé là seulement.
 win11toast; sys_platform == "win32"
 pync; sys_platform == "darwin"

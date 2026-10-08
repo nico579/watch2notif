@@ -5,6 +5,7 @@ notification_history.json
 __pycache__/
 *.pyc
 .venv/
+.venv_android_pc/
 build_venv/
 build/
 dist/
@@ -13,3 +14,12 @@ dist/
 
 # Ressource VERSIONINFO regeneree a chaque build par watch2notif.spec.
 .version_info.txt
+
+# Android builds and machine-specific SDK / signing configuration.
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+android/.idea/
+*.jks
+*.keystore
