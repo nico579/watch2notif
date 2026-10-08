@@ -1,12 +1,23 @@
 package io.github.nico579.watch2notif;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.LinkProperties;
+import android.net.NetworkCapabilities;
+import android.net.RouteInfo;
 import android.util.Base64;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.Proxy;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -17,6 +28,7 @@ import static io.github.nico579.watch2notif.Models.*;
 
 final class PairingClient {
     private static final byte[] AAD = "watch2notif-transfer-v1".getBytes(StandardCharsets.UTF_8);
+    interface ConnectionFactory { HttpURLConnection open(URL address, Proxy proxy) throws IOException; }
     static final class Ticket {
         final String url, code;
         final byte[] key;
@@ -85,12 +97,48 @@ final class PairingClient {
         return value;
     }
 
+    static android.net.Network localNetwork(ConnectivityManager manager, String host) throws IOException {
+        if (manager == null) return null;
+        // The validated QR host is a literal IPv4 address; this cannot resolve DNS.
+        InetAddress destination = InetAddress.getByName(host);
+        android.net.Network fallback = null;
+        for (android.net.Network network : manager.getAllNetworks()) {
+            NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+            if (capabilities == null || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                    || !(capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) continue;
+            if (fallback == null) fallback = network;
+            LinkProperties properties = manager.getLinkProperties(network);
+            if (properties != null) for (RouteInfo route : properties.getRoutes()) {
+                if (!route.isDefaultRoute() && route.matches(destination)) return network;
+            }
+        }
+        return fallback;
+    }
+
+    static Received receive(Context context, String qr) throws SourceException {
+        return receive(qr, (address, proxy) -> {
+            ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.Network network = localNetwork(manager, address.getHost());
+            // Bind this connection only; provider requests keep their normal network.
+            return (HttpURLConnection) (network == null ? address.openConnection(proxy) : network.openConnection(address, proxy));
+        });
+    }
+
     static Received receive(String qr) throws SourceException {
-        Ticket ticket = parseTicket(qr);
+        return receive(qr, (address, proxy) -> (HttpURLConnection) address.openConnection(proxy));
+    }
+
+    static Received receive(String qr, ConnectionFactory connections) throws SourceException {
+        return receive(parseTicket(qr), connections);
+    }
+
+    static Received receive(Ticket ticket, ConnectionFactory connections) throws SourceException {
         HttpURLConnection connection = null;
         try {
-            connection = (HttpURLConnection) new URI(ticket.url).toURL().openConnection();
+            connection = connections.open(new URI(ticket.url).toURL(), Proxy.NO_PROXY);
             connection.setConnectTimeout(15000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
+            connection.setUseCaches(false);
             connection.setRequestMethod("POST"); connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
             byte[] request = new JSONObject().put("code", ticket.code).toString().getBytes(StandardCharsets.UTF_8);
@@ -98,20 +146,46 @@ final class PairingClient {
             try (OutputStream output = connection.getOutputStream()) { output.write(request); }
             int status = connection.getResponseCode();
             if (status == 403 || status == 410) throw new SourceException("pair_expired");
-            if (status != 200) throw new SourceException("pair_network");
+            if (status != 200) throw new SourceException("pair_http", status);
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
                 byte[] buffer = new byte[4096]; int count;
                 while ((count = input.read(buffer)) != -1) {
                     if (output.size() + count > 2 * 1024 * 1024) throw new SourceException("pair_invalid");
                     output.write(buffer, 0, count);
                 }
-                return decrypt(ticket, new JSONObject(output.toString(StandardCharsets.UTF_8.name())));
+                JSONObject response;
+                try { response = new JSONObject(output.toString(StandardCharsets.UTF_8.name())); }
+                catch (Exception ignored) { throw new SourceException("pair_invalid"); }
+                return decrypt(ticket, response);
             }
         } catch (SourceException failure) { throw failure; }
+        catch (SocketTimeoutException ignored) { throw new SourceException("pair_timeout"); }
+        catch (ConnectException ignored) { throw new SourceException("pair_refused"); }
         catch (Exception ignored) { throw new SourceException("pair_network"); }
         finally {
             Arrays.fill(ticket.key, (byte)0);
             if (connection != null) connection.disconnect();
+        }
+    }
+
+    static String endpoint(String qr) {
+        Ticket ticket = null;
+        try {
+            ticket = parseTicket(qr);
+            URI address = URI.create(ticket.url);
+            return address.getHost() + ":" + address.getPort();
+        } catch (Exception ignored) { return ""; }
+        finally { if (ticket != null) Arrays.fill(ticket.key, (byte)0); }
+    }
+
+    static int errorMessage(String code) {
+        switch (code) {
+            case "pair_invalid": return R.string.pair_invalid;
+            case "pair_expired": return R.string.pair_expired;
+            case "pair_timeout": return R.string.pair_timeout;
+            case "pair_refused": return R.string.pair_refused;
+            case "pair_http": return R.string.pair_http;
+            default: return R.string.pair_network;
         }
     }
 }

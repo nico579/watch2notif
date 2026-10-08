@@ -50,6 +50,9 @@ jobs:
       - name: Verifier le JavaScript de l'interface
         run: node --check gui/app.js
 
+      - name: Tester les fermetures et regenerations du QR
+        run: node --test tests/test_pairing_ui.cjs
+
       - name: Verifier que autostart_manager expose bien is_enabled/enable/disable
         run: python -c "import autostart_manager as a; assert callable(a.is_enabled) and callable(a.enable) and callable(a.disable)"
 

@@ -114,4 +114,8 @@
     <string name="pair_invalid">QR ou configuration chiffrée invalide. Rien n’a été importé.</string>
     <string name="pair_expired">Ce QR a expiré ou a déjà été utilisé. Générez-en un nouveau sur le PC.</string>
     <string name="pair_network">Impossible de joindre le PC. Vérifiez le réseau local commun, le VPN et le pare-feu du PC, puis générez un nouveau QR.</string>
+    <string name="pair_timeout">Le PC ne répond pas à temps. Vérifiez le Wi-Fi commun et le pare-feu du PC, puis générez un nouveau QR.</string>
+    <string name="pair_refused">Le PC refuse la connexion. Gardez la fenêtre de transfert ouverte et générez un nouveau QR.</string>
+    <string name="pair_http">Le PC a répondu HTTP %1$d. Générez un nouveau QR et réessayez.</string>
+    <string name="pair_endpoint">Adresse du PC : %1$s</string>
 </resources>

@@ -36,6 +36,7 @@ import autostart_manager
 import config_transfer
 import filtre_ia
 import lan_pairing
+import windows_firewall
 import data_paths
 import i18n
 import notification_history
@@ -779,7 +780,9 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
                 "youtube_api_key": os.environ.get("YOUTUBE_API_KEY", "").strip(),
                 "anthropic_api_key": os.environ.get("ANTHROPIC_API_KEY", "").strip(),
             }
-            return lan_pairing.manager.start(portable)
+            result = lan_pairing.manager.start(portable, address=payload.get("address"))
+            result["firewall"] = windows_firewall.status(result["address"])
+            return result
         except (TypeError, ValueError):
             return {"ok": False, "error": "invalid_config"}
         except Exception:
@@ -788,6 +791,20 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
     def _api_pair_cancel(_payload: dict) -> dict:
         lan_pairing.manager.close()
         return {"ok": True}
+
+    def _api_pair_network() -> dict:
+        try:
+            return {"ok": True, "addresses": lan_pairing.manager.candidates()}
+        except Exception:
+            return {"ok": False, "error": "pair_unavailable", "addresses": []}
+
+    def _api_pair_allow(_payload: dict) -> dict:
+        # The user explicitly clicks the desktop button. Never configure the
+        # firewall merely because a QR is displayed or the app starts.
+        status = lan_pairing.manager.status()
+        if status.get("state") != "ready":
+            return {"ok": False, "error": "pair_expired"}
+        return windows_firewall.allow(status["address"])
 
     # Le bandeau de mise a jour de la page est celui du commun
     # (nico579_commons.maj_install.routes, maj_banniere.js) : /api/maj et
@@ -817,12 +834,14 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
 
     api_routes = {"strings": _api_strings, "state": _api_state, "history": _api_history,
                   "pair-status": lan_pairing.manager.status,
+                  "pair-network": _api_pair_network,
                   **routes_maj_get, **routes_demarrage_get, **routes_langue_get}
     post_routes = {
         "save-config": _api_save_config,
         "validate-config": _api_validate_config,
         "pair-start": _api_pair_start,
         "pair-cancel": _api_pair_cancel,
+        "pair-allow": _api_pair_allow,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
         **routes_maj_post,

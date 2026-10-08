@@ -14,6 +14,7 @@ import builtins
 import json
 import os
 import socket
+import sys
 import tempfile
 import threading
 import unittest
@@ -442,6 +443,12 @@ class TrayMenuTests(unittest.TestCase):
         self.addCleanup(lang_patch.stop)
         self.tray = notifier._construire_tray("http://127.0.0.1:0/", self.state, self.stop_event)
         self.icon = self.tray.construire()
+        if sys.platform == "win32":
+            # pystray registers a native window class in __init__, but only
+            # unregisters it when its message loop ends. These menu tests
+            # never run that loop: release the class explicitly so Python
+            # object-id reuse cannot collide with a preceding fixture.
+            self.addCleanup(self.icon._unregister_class, self.icon._atom)
 
     def _labels(self):
         return [str(item) for item in self.icon.menu]

@@ -162,6 +162,46 @@ class TransferRouteTests(unittest.TestCase):
         self.assertIsNone(self.manager.session)
         self.assertEqual(notifier.load_config(), self.original)
 
+    def test_network_choices_expose_interface_metadata_without_credentials(self):
+        addresses = [{"address": "192.168.1.13", "label": "Wi-Fi", "network_category": "public"}]
+        with mock.patch.object(self.manager, "candidates", return_value=addresses):
+            result = self.get("/api/pair-network")
+        self.assertEqual(result, {"ok": True, "addresses": addresses})
+        self.assertNotIn("dummy-", json.dumps(result))
+        self.assertIsNone(self.manager.session)
+
+    def test_selected_interface_is_forwarded_and_client_credentials_are_ignored(self):
+        payload = self.config()
+        payload["address"] = "192.168.1.13"
+        firewall = {"supported": True, "can_configure": True, "state": "unknown"}
+        with mock.patch.object(self.manager, "start", return_value={"ok": True, "address": "192.168.1.13"}) as start, \
+                mock.patch.object(notifier.windows_firewall, "status", return_value=firewall) as probe:
+            self.assertEqual(self.post("/api/pair-start", payload), {"ok": True, "address": "192.168.1.13", "firewall": firewall})
+        probe.assert_called_once_with("192.168.1.13")
+        portable = start.call_args.args[0]
+        self.assertEqual(start.call_args.kwargs, {"address": "192.168.1.13"})
+        self.assertEqual(portable["credentials"]["anthropic_api_key"], "dummy-claude-key")
+        self.assertNotIn("address", portable)
+
+    def test_firewall_never_changes_on_start_or_network_probe(self):
+        with mock.patch.object(notifier.windows_firewall, "allow") as allow:
+            self.assertTrue(self.post("/api/pair-start", self.config())["ok"])
+            with mock.patch.object(self.manager, "candidates", return_value=[]):
+                self.get("/api/pair-network")
+        allow.assert_not_called()
+
+    def test_firewall_button_requires_active_session_and_uses_its_address(self):
+        with mock.patch.object(notifier.windows_firewall, "allow", return_value={"ok": True}) as allow:
+            self.assertEqual(self.post("/api/pair-allow", {}), {"ok": False, "error": "pair_expired"})
+            allow.assert_not_called()
+            self.assertTrue(self.post("/api/pair-start", self.config())["ok"])
+            # A client-supplied address cannot widen the permission to another interface.
+            self.assertEqual(self.post("/api/pair-allow", {"address": "0.0.0.0"}), {"ok": True})
+            allow.assert_called_once_with("127.0.0.1")
+            self.post("/api/pair-cancel", {})
+            self.assertEqual(self.post("/api/pair-allow", {}), {"ok": False, "error": "pair_expired"})
+            self.assertEqual(allow.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -407,7 +407,7 @@ public final class MainActivity extends Activity {
         toast(R.string.pair_receiving);
         WatchApp.IO.execute(() -> {
             try {
-                PairingClient.Received received = PairingClient.receive(qr);
+                PairingClient.Received received = PairingClient.receive(this, qr);
                 runOnUiThread(() -> {
                     if (isDestroyed()) return;
                     new AlertDialog.Builder(this).setTitle(R.string.pair_title)
@@ -425,8 +425,15 @@ public final class MainActivity extends Activity {
                             }).show();
                 });
             } catch (SourceException failure) {
-                runOnUiThread(() -> toast("pair_invalid".equals(failure.code) ? R.string.pair_invalid
-                        : "pair_expired".equals(failure.code) ? R.string.pair_expired : R.string.pair_network));
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    String message = "pair_http".equals(failure.code) ? getString(R.string.pair_http, failure.httpStatus)
+                            : getString(PairingClient.errorMessage(failure.code));
+                    String endpoint = PairingClient.endpoint(qr);
+                    if (!endpoint.isEmpty()) message += "\n\n" + getString(R.string.pair_endpoint, endpoint);
+                    new AlertDialog.Builder(this).setTitle(R.string.pair_title).setMessage(message)
+                            .setPositiveButton(android.R.string.ok, null).show();
+                });
             }
         });
     }
