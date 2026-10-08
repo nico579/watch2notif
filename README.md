@@ -171,6 +171,30 @@ key, then set the `YOUTUBE_API_KEY` environment variable. Quota cost is
 2 units per poll (10000/day free allowance), so the default interval is
 a courtesy, not a quota necessity.
 
+## AI filter (optional)
+
+Some sources are too broad to be useful as they are. A Reddit search for
+"local storage" on a camera subreddit brings up the people who could use
+your tool, but also billing complaints and pictures of new cameras. Words
+alone cannot tell them apart; reading the message can.
+
+Each source has an **AI filter** button. It opens a text box where you
+describe, in plain words, which entries deserve a notification, for
+example: "Questions from people who want to keep or download their Blink
+clips without a subscription. Not billing complaints, not motion detection
+problems." Before notifying a new entry, watch2notif sends its title and
+text to Claude Haiku with your instructions, and only notifies the ones it
+judges relevant, with a one-line reason at the start of the notification.
+The others are remembered as seen and never sent again. An empty box means
+no filtering.
+
+It needs an Anthropic API key in the `ANTHROPIC_API_KEY` environment
+variable (console.anthropic.com). The API is billed per use, separately
+from any Claude subscription; sorting a few dozen messages a month with
+Haiku costs a few cents. If the key is missing or the API cannot answer,
+watch2notif notifies anyway and says so in the notification: an entry is
+never dropped silently.
+
 ## Adding a source type
 
 A provider is a module in `providers/` exposing two things:

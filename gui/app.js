@@ -65,6 +65,12 @@ function applyLanguage() {
     racine.querySelectorAll('[data-i18n]').forEach((el) => {
       el.textContent = t(el.dataset.i18n);
     });
+    racine.querySelectorAll('[data-i18n-title]').forEach((el) => {
+      el.title = t(el.dataset.i18nTitle);
+    });
+    racine.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+      el.placeholder = t(el.dataset.i18nPlaceholder);
+    });
   });
   renderFeedKindOptions();
   renderServerInfo();
@@ -106,8 +112,9 @@ function renderFeedKindOptions() {
 }
 
 function createFeedRow(feed) {
-  feed = feed || { key: '', label: '', url: '', enabled: false, kind: defaultKind, interval_seconds: null };
+  feed = feed || { key: '', label: '', url: '', enabled: false, kind: defaultKind, interval_seconds: null, filtre_ia: '' };
   const tr = document.createElement('tr');
+  tr.className = 'feed-row';
   tr.dataset.key = feed.key || '';
   // Auto : le champ intervalle suit le defaut du type tant que l'utilisateur
   // ne l'a pas modifie lui-meme (meme logique que interval_auto dans
@@ -155,14 +162,46 @@ function createFeedRow(feed) {
   intervalInput.addEventListener('input', () => { tr.dataset.intervalAuto = '0'; });
   tdInterval.appendChild(intervalInput);
 
+  // Filtre IA (filtre_ia.py) : la consigne s'ecrit dans une ligne a part, sous la
+  // source, ouverte par le bouton « Filtre IA » ; elle reste ouverte si elle n'est pas vide.
+  const filterRow = document.createElement('tr');
+  filterRow.className = 'feed-filter-row';
+  const filterCell = document.createElement('td');
+  filterCell.colSpan = 6;
+  const filterInput = document.createElement('textarea');
+  filterInput.className = 'feed-filter';
+  filterInput.rows = 3;
+  filterInput.dataset.i18nPlaceholder = 'filter_placeholder';
+  filterInput.placeholder = t('filter_placeholder');
+  filterInput.value = feed.filtre_ia || '';
+  filterCell.appendChild(filterInput);
+  filterRow.appendChild(filterCell);
+  filterRow.hidden = !filterInput.value;
+  tr.filterInput = filterInput;
+  tr.filterRow = filterRow;
+
   const tdRemove = document.createElement('td');
   tdRemove.className = 'col-remove';
+  const filterBtn = document.createElement('button');
+  filterBtn.type = 'button';
+  filterBtn.className = 'filter-btn';
+  filterBtn.dataset.i18n = 'filter_button';
+  filterBtn.dataset.i18nTitle = 'filter_button_title';
+  filterBtn.textContent = t('filter_button');
+  filterBtn.title = t('filter_button_title');
+  const majFilterBtn = () => filterBtn.classList.toggle('active', !!filterInput.value.trim());
+  majFilterBtn();
+  filterInput.addEventListener('input', majFilterBtn);
+  filterBtn.addEventListener('click', () => {
+    filterRow.hidden = !filterRow.hidden;
+    if (!filterRow.hidden) filterInput.focus();
+  });
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
   removeBtn.className = 'remove-btn';
   removeBtn.textContent = '×';
-  removeBtn.addEventListener('click', () => tr.remove());
-  tdRemove.appendChild(removeBtn);
+  removeBtn.addEventListener('click', () => { tr.remove(); filterRow.remove(); });
+  tdRemove.append(filterBtn, removeBtn);
 
   tr.append(tdActive, tdKind, tdName, tdUrl, tdInterval, tdRemove);
 
@@ -172,7 +211,7 @@ function createFeedRow(feed) {
     }
   });
 
-  document.getElementById('feeds-body').appendChild(tr);
+  document.getElementById('feeds-body').append(tr, filterRow);
   kindSelect.value = feed.kind || defaultKind;
   return tr;
 }
@@ -184,13 +223,14 @@ function renderFeedsTable(feeds) {
 }
 
 function collectFeedsFromTable() {
-  return Array.from(document.querySelectorAll('#feeds-body tr')).map((tr) => ({
+  return Array.from(document.querySelectorAll('#feeds-body tr.feed-row')).map((tr) => ({
     key: tr.dataset.key || '',
     label: tr.querySelector('.feed-name').value.trim(),
     url: tr.querySelector('.feed-url').value.trim(),
     enabled: tr.querySelector('.feed-active').checked,
     kind: tr.querySelector('.feed-kind').value,
     interval_seconds: parseInt(tr.querySelector('.feed-interval').value, 10) || null,
+    filtre_ia: tr.filterInput.value.trim(),
   }));
 }
 
@@ -241,7 +281,7 @@ async function saveConfig() {
   // Reaffecte les clefs generees cote serveur (nouvelles lignes) : sans ca,
   // un 2e Sauvegarder sans recharger la page regenererait un nouveau slug a
   // chaque fois pour ces lignes (meme piege que checkbox._feed_key en Qt).
-  const rows = Array.from(document.querySelectorAll('#feeds-body tr'));
+  const rows = Array.from(document.querySelectorAll('#feeds-body tr.feed-row'));
   result.feeds.forEach((feed, index) => {
     if (rows[index]) rows[index].dataset.key = feed.key;
   });
