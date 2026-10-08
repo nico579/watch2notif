@@ -1,0 +1,59 @@
+plugins { id 'com.android.application' }
+
+def desktopVersion = (rootProject.file('../update_check.py').text =~ /(?m)^VERSION = "([^"]+)"/)[0][1]
+def parts = desktopVersion.tokenize('.').collect { it.toInteger() }
+
+android {
+    namespace 'io.github.nico579.watch2notif'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'io.github.nico579.watch2notif'
+        minSdk 26
+        targetSdk 36
+        versionCode parts[0] * 1000000 + parts[1] * 1000 + parts[2]
+        versionName desktopVersion
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    signingConfigs {
+        release {
+            def keyPath = providers.environmentVariable('WATCH2NOTIF_KEYSTORE').orNull
+            if (keyPath) {
+                storeFile file(keyPath)
+                storePassword providers.environmentVariable('WATCH2NOTIF_STORE_PASSWORD').orNull
+                keyAlias providers.environmentVariable('WATCH2NOTIF_KEY_ALIAS').getOrElse('watch2notif')
+                keyPassword providers.environmentVariable('WATCH2NOTIF_KEY_PASSWORD').orNull
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (providers.environmentVariable('WATCH2NOTIF_KEYSTORE').isPresent()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            maxHeapSize = '1536m'
+            systemProperty 'watch2notif.qa', rootProject.file('build/qa').absolutePath
+        }
+    }
+    sourceSets.test.resources.srcDir rootProject.file('../tests/fixtures')
+    lint { abortOnError true; checkReleaseBuilds true }
+    buildFeatures { buildConfig true }
+    bundle { language { enableSplit = false } }
+}
+
+dependencies {
+    implementation 'androidx.work:work-runtime:2.11.2'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}

@@ -1,39 +1,57 @@
-name: Release (build 3 OS)
+name: Release (desktop et Android)
 
-# Construit les bundles autonomes sur les trois systemes puis les publie sur
-# la release. PyInstaller n'est pas un compilateur croise : chaque binaire
-# doit etre produit sur son systeme natif. Les runners GitHub le font
-# gratuitement.
-#
-# Declenchement :
-#   - poussee d'une etiquette v*   (git tag v0.1.0 && git push origin v0.1.0)
-#   - manuel, en indiquant l'etiquette
-#
-# Fichiers produits :
-#   watch2notif-windows-x86_64.zip
-#   watch2notif-linux-x86_64.tar.gz
-#   watch2notif-macos-arm64.zip
-
+# Tous les binaires sont construits sur GitHub, apres les tests du meme tag.
+# L'APK et l'AAB partagent une cle de signature durable stockee dans les secrets.
+# Aucun diagnostic de test ni secret n'est joint a la release.
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: "Etiquette de la release (ex : v0.1.0)"
+        description: "Etiquette de la release (ex : v0.11.0)"
         required: true
 
-# Droits minimaux du GITHUB_TOKEN : lecture seule. Un job qui publie
-# déclare lui-même le droit d'écriture dont il a besoin.
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  verrous:
+    name: Verrous des dependances de distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install uv==0.9.28
+      - name: Roues pour les trois systemes de construction
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "15.0"
+        run: |
+          for verrou in requirements.txt requirements-build.txt; do
+            for cible in x86_64-pc-windows-msvc x86_64-unknown-linux-gnu aarch64-apple-darwin; do
+              case "$cible" in
+                aarch64-apple-darwin) sources="pync" ;;
+                *) sources="" ;;
+              esac
+              uv pip compile "$verrou" --python-platform "$cible" --python-version 3.12 \
+                --only-binary :all: ${sources:+--no-binary "$sources"} --no-header -q -o /tmp/roues.txt
+            done
+          done
+
   build:
-    name: build ${{ matrix.os }}
+    name: Tests et bundle ${{ matrix.os }}
+    needs: verrous
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -41,75 +59,182 @@ jobs:
           - os: windows-latest
             asset: watch2notif-windows-x86_64
             archive: zip
+            notifier: dist/watch2notif/watch2notif.exe
           - os: ubuntu-22.04
             asset: watch2notif-linux-x86_64
             archive: tar
-          - os: macos-latest
+            notifier: dist/watch2notif/watch2notif
+          - os: macos-15
             asset: watch2notif-macos-arm64
             archive: zip
-
+            notifier: dist/watch2notif.app/Contents/MacOS/watch2notif
     steps:
-      # Sans ref explicite, un declenchement manuel (workflow_dispatch)
-      # checkoute la branche par defaut, pas l'etiquette saisie dans le
-      # formulaire : la release publierait alors le code de master sous le
-      # nom de l'etiquette au lieu du commit qu'elle designe reellement.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Verifier que le tag correspond a la version du binaire
+      - name: Verifier le tag et la version
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: python -c "import os, update_check; tag=os.environ['RELEASE_TAG'].lstrip('vV'); assert tag == update_check.VERSION, f'le tag {tag} ne correspond pas a VERSION={update_check.VERSION}'"
-
-      # Le meme build.py qu'en local : une seule recette a maintenir, et ce
-      # qui est publie est exactement ce qu'on peut reproduire chez soi.
+        run: python -c "import os, update_check; tag=os.environ['RELEASE_TAG']; assert tag == 'v' + update_check.VERSION, f'{tag} ne correspond pas a VERSION={update_check.VERSION}'"
+      - name: Installer les dependances verrouillees
+        run: python -m pip install --quiet --require-hashes -r requirements.txt
+      - name: Verifier les modules et l'interface
+        shell: bash
+        run: |
+          python -m compileall -q .
+          node --check gui/app.js
+      - name: Tester l'application, l'updater et l'appairage
+        shell: bash
+        run: python -m unittest discover -s tests -v 2>&1 | tee test-results.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-desktop-tests-${{ matrix.os }}
+          path: test-results.log
+          if-no-files-found: ignore
       - name: Construire le bundle
         run: python build.py
-
+      - name: Lancer le binaire (imports, version, icone)
+        shell: bash
+        run: |
+          version=$(python -c "import update_check; print(update_check.VERSION)")
+          "${{ matrix.notifier }}" --self-test-version "$version"
       - name: Empaqueter (zip, Windows)
         if: matrix.archive == 'zip' && runner.os == 'Windows'
         shell: bash
-        run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" watch2notif || zip -r "${{ matrix.asset }}.zip" watch2notif
-
+        run: cd dist && 7z a -tzip "${{ matrix.asset }}.zip" watch2notif
       - name: Empaqueter (zip, macOS)
-        # watch2notif.spec produit une vraie .app (cible BUNDLE) sur macOS,
-        # a cote du dossier watch2notif/ ordinaire : c'est elle qu'on
-        # publie. -y preserve les liens symboliques du bundle (non teste,
-        # pas de Mac ici : a verifier sur un vrai build).
         if: matrix.archive == 'zip' && runner.os == 'macOS'
         run: cd dist && zip -r -y "${{ matrix.asset }}.zip" watch2notif.app
-
       - name: Empaqueter (tar.gz)
         if: matrix.archive == 'tar'
         run: cd dist && tar czf "${{ matrix.asset }}.tar.gz" watch2notif
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}.*
+          if-no-files-found: error
+
+  android:
+    name: Tests et distribution Android signee
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Verifier le tag et la version Android
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python -c "import os, update_check; tag=os.environ['RELEASE_TAG']; assert tag == 'v' + update_check.VERSION, f'{tag} ne correspond pas a VERSION={update_check.VERSION}'"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle
+            android/gradle/wrapper/gradle-wrapper.properties
+      - name: Preparer le SDK
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sdk_manager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdk_manager" || { echo "::error::SDK manager absent : $sdk_manager"; exit 1; }
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$sdk_root" "$sdk_root" >> "$GITHUB_ENV"
+          printf '%s\n' "$sdk_root/cmdline-tools/latest/bin" "$sdk_root/platform-tools" >> "$GITHUB_PATH"
+          "$sdk_manager" --sdk_root="$sdk_root" 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Tests et Android Lint (debug et release)
+        working-directory: android
+        run: bash gradlew testDebugUnitTest testReleaseUnitTest lintDebug lintRelease --no-daemon --max-workers=2 --console=plain
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-android-checks
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+            android/build/qa/
+          if-no-files-found: ignore
+      - name: Construire et verifier l'APK et l'AAB signes
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          WATCH2NOTIF_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          WATCH2NOTIF_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          WATCH2NOTIF_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for variable in ANDROID_KEYSTORE_BASE64 WATCH2NOTIF_STORE_PASSWORD WATCH2NOTIF_KEY_ALIAS WATCH2NOTIF_KEY_PASSWORD; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Secret de signature Android manquant : $variable"
+              exit 1
+            fi
+          done
+          umask 077
+          export WATCH2NOTIF_KEYSTORE="$RUNNER_TEMP/watch2notif-release.jks"
+          trap 'rm -f "$WATCH2NOTIF_KEYSTORE"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$WATCH2NOTIF_KEYSTORE"
+          bash gradlew assembleRelease bundleRelease --no-daemon --max-workers=2 --console=plain
+          apk=app/build/outputs/apk/release/app-release.apk
+          aab=app/build/outputs/bundle/release/app-release.aab
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/apk-signature.log"
+          grep -q '^Signer #1 certificate SHA-256 digest: fac9af3cd0b49e5364450d5b48afdbd0b36c28a0292661d34f3a46283c31d9fe$' "$RUNNER_TEMP/apk-signature.log"
+          jarsigner -J-Duser.language=en -J-Duser.country=US -verify "$aab" > "$RUNNER_TEMP/aab-signature.log"
+          cat "$RUNNER_TEMP/aab-signature.log"
+          grep -q '^jar verified\.$' "$RUNNER_TEMP/aab-signature.log"
+          version=$(python -c "import sys; sys.path.insert(0, '..'); import update_check; print(update_check.VERSION)")
+          version_code=$(python -c "import sys; sys.path.insert(0, '..'); import update_check; a,b,c=map(int, update_check.VERSION.split('.')); print(a*1000000+b*1000+c)")
+          badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")
+          printf '%s\n' "$badging" | grep -F "versionName='$version'" >/dev/null
+          printf '%s\n' "$badging" | grep -F "versionCode='$version_code'" >/dev/null
+          # Outil officiel Google, version et empreinte fixes : le manifeste
+          # protobuf de l'AAB est controle independamment de celui de l'APK.
+          bundletool="$RUNNER_TEMP/bundletool-1.18.3.jar"
+          curl --fail --location --retry 3 --silent --show-error \
+            https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar \
+            --output "$bundletool"
+          printf '%s  %s\n' a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29 "$bundletool" | sha256sum --check
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath='/manifest/@android:versionName')" = "$version"
+          test "$(java -jar "$bundletool" dump manifest --bundle="$aab" --xpath='/manifest/@android:versionCode')" = "$version_code"
+          python3 ../tools/verify_android_build.py --build-dir app/build --apk "$apk" --aab "$aab"
+          mkdir -p ../dist
+          cp "$apk" ../dist/watch2notif-android.apk
+          cp "$aab" ../dist/watch2notif-android.aab
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: watch2notif-android
+          path: |
+            dist/watch2notif-android.apk
+            dist/watch2notif-android.aab
+          if-no-files-found: error
 
   publish:
-    name: publier la release
-    needs: build
+    name: Publier les cinq fichiers de distribution
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          pattern: watch2notif-*
           path: artefacts
-
-      # gh, la CLI officielle de GitHub déjà présente sur le runner, plutôt
-      # qu'une action tierce dans le seul job qui a le droit d'écrire : un tag
-      # d'action déplacé par un attaquant y remplacerait les archives que la
-      # mise à jour intégrée installe. Même principe que release.yml de
-      # lidar2map. L'étiquette passe par l'environnement, jamais interpolée
-      # dans le script : l'entrée manuelle « tag » ne peut rien y injecter.
+          merge-multiple: true
+      - name: Verifier les fichiers et calculer leurs empreintes
+        working-directory: artefacts
+        run: |
+          set -euo pipefail
+          for fichier in watch2notif-windows-x86_64.zip watch2notif-linux-x86_64.tar.gz watch2notif-macos-arm64.zip watch2notif-android.apk watch2notif-android.aab; do
+            test -s "$fichier"
+          done
+          sha256sum watch2notif-* > SHA256SUMS.txt
       - name: Publier
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,8 +242,8 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" artefacts/*/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" artefacts/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" artefacts/*/* --generate-notes --verify-tag \
+            gh release create "$TAG" artefacts/* --generate-notes --verify-tag \
               --repo "$GITHUB_REPOSITORY"
           fi

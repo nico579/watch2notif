@@ -9,6 +9,10 @@ const api = {
   state: () => fetch('/api/state').then(r => r.json()),
   history: () => fetch('/api/history').then(r => r.json()),
   saveConfig: (payload) => _post('/api/save-config', payload),
+  validateConfig: (payload) => _post('/api/validate-config', payload),
+  pairStart: (payload) => _post('/api/pair-start', payload),
+  pairStatus: () => fetch('/api/pair-status').then(r => r.json()),
+  pairCancel: () => _post('/api/pair-cancel', {}),
   setPause: (paused) => _post('/api/set-pause', { paused }),
   clearHistory: () => _post('/api/clear-history', {}),
 };
@@ -353,6 +357,86 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 document.getElementById('add-feed-btn').addEventListener('click', () => createFeedRow());
 document.getElementById('save-btn').addEventListener('click', saveConfig);
+
+function transferStatus(key, error = false) {
+  const status = document.getElementById('save-status');
+  status.textContent = t(key);
+  status.classList.toggle('error', error);
+}
+
+document.getElementById('config-export-btn').addEventListener('click', async () => {
+  try {
+    const result = await api.validateConfig({ feeds: collectFeedsFromTable() });
+    if (!result.ok) { transferStatus('config_invalid', true); return; }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(result.config, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'watch2notif-config.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    transferStatus('config_exported');
+  } catch (error) { transferStatus('config_invalid', true); }
+});
+
+document.getElementById('config-import-btn').addEventListener('click', () => {
+  document.getElementById('config-import-file').click();
+});
+
+let pairingTimer;
+document.getElementById('pair-start-btn').addEventListener('click', async (event) => {
+  event.target.disabled = true;
+  try {
+    const result = await api.pairStart({ feeds: collectFeedsFromTable() });
+    if (!result.ok) { transferStatus(result.error === 'invalid_config' ? 'config_invalid' : 'pair_unavailable', true); return; }
+    const dialog = document.getElementById('pair-dialog');
+    const qr = document.getElementById('pair-qr');
+    const status = document.getElementById('pair-status');
+    qr.src = result.qr_svg;
+    qr.hidden = false;
+    status.textContent = t('pair_ready', { address: result.address, seconds: 120 });
+    dialog.showModal();
+    pairingTimer = setInterval(async () => {
+      try {
+        const state = await api.pairStatus();
+        const remaining = Math.max(0, Math.ceil(state.expires_at - Date.now() / 1000));
+        if (state.state !== 'ready' || remaining === 0) {
+          clearInterval(pairingTimer);
+          qr.removeAttribute('src');
+          qr.hidden = true;
+          status.textContent = t(state.state === 'used' ? 'pair_used' : 'pair_expired');
+        } else status.textContent = t('pair_ready', { address: state.address, seconds: remaining });
+      } catch (error) {
+        clearInterval(pairingTimer);
+        qr.removeAttribute('src');
+        qr.hidden = true;
+        status.textContent = t('pair_unavailable');
+      }
+    }, 1000);
+  } catch (error) { transferStatus('pair_unavailable', true); }
+  finally { event.target.disabled = false; }
+});
+document.getElementById('pair-close-btn').addEventListener('click', () => document.getElementById('pair-dialog').close());
+document.getElementById('pair-dialog').addEventListener('close', () => {
+  clearInterval(pairingTimer);
+  document.getElementById('pair-qr').removeAttribute('src');
+  api.pairCancel().catch(() => {});
+});
+
+document.getElementById('config-import-file').addEventListener('change', async (event) => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  try {
+    if (file.size > 1024 * 1024) throw new Error('size');
+    const result = await api.validateConfig(JSON.parse(await file.text()));
+    if (!result.ok) { transferStatus('config_invalid', true); return; }
+    if (!window.confirm(t('config_import_confirm', { count: result.config.feeds.length }))) return;
+    renderFeedsTable(result.config.feeds);
+    transferStatus('config_imported');
+  } catch (error) { transferStatus('config_invalid', true); }
+});
 pauseCheck.addEventListener('change', (event) => {
   api.setPause(event.target.checked);
 });

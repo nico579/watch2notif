@@ -17,6 +17,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   syntaxe:
     name: syntaxe et imports ${{ matrix.os }}
@@ -25,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -39,14 +43,26 @@ jobs:
       - name: Compiler tous les modules
         run: python -m compileall -q .
 
-      - name: Tester l'updater et les fonctions pures
-        run: python -m unittest discover -s tests -v
+      - name: Tester l'application, l'updater et l'appairage
+        shell: bash
+        run: python -m unittest discover -s tests -v 2>&1 | tee test-results.log
+
+      - name: Verifier le JavaScript de l'interface
+        run: node --check gui/app.js
 
       - name: Verifier que autostart_manager expose bien is_enabled/enable/disable
         run: python -c "import autostart_manager as a; assert callable(a.is_enabled) and callable(a.enable) and callable(a.disable)"
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: ci-desktop-tests-${{ matrix.os }}
+          path: test-results.log
+          if-no-files-found: ignore
+
   bundle:
     name: bundle ${{ matrix.os }}
+    needs: [syntaxe, verrous]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -55,10 +71,16 @@ jobs:
         include:
           - os: windows-latest
             notifier: dist/watch2notif/watch2notif.exe
+            output: dist/watch2notif/
+            asset: watch2notif-windows-x86_64
           - os: ubuntu-22.04
             notifier: dist/watch2notif/watch2notif
-          - os: macos-latest
+            output: dist/watch2notif/
+            asset: watch2notif-linux-x86_64
+          - os: macos-15
             notifier: dist/watch2notif.app/Contents/MacOS/watch2notif
+            output: dist/watch2notif.app/
+            asset: watch2notif-macos-arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -82,8 +104,14 @@ jobs:
           version=$(python -c "import update_check; print(update_check.VERSION)")
           "${{ matrix.notifier }}" --self-test-version "$version"
 
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.asset }}-ci
+          path: ${{ matrix.output }}
+          if-no-files-found: error
+
   # Chaque système de construction de release.yml (windows-latest,
-  # ubuntu-22.04, macos-latest) doit pouvoir installer les deux verrous, avec
+  # ubuntu-22.04, macos-15) doit pouvoir installer les deux verrous, avec
   # son Python 3.12 : un verrou régénéré qui choisirait une version sans roue
   # pour l'un d'eux casserait sa construction, le jour de la release. Les
   # paquets livrés en source sont listés par système, exactement : un nouveau

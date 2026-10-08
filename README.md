@@ -2,9 +2,9 @@
 
 # watch2notif
 
-Small desktop tool that watches sources (RSS/Atom feeds, GitHub issues,
+An app for desktop and Android that watches sources (RSS/Atom feeds, GitHub issues,
 YouTube comments...) and fires a native, clickable notification
-whenever something new shows up. Cross-platform (Windows/Linux/Mac).
+whenever something new shows up. Cross-platform (Windows/Linux/macOS/Android).
 
 Started as a Reddit inbox watcher (via Reddit's private RSS feeds,
 reddit.com/prefs/feeds), then generalized: any RSS/Atom feed works, plus
@@ -87,15 +87,58 @@ external updater is ready, then restarts on the new version. If
 preparation, replacement, or restart fails, the current installation is
 kept or restored. Unsupported platforms fall back to the release page.
 
-## Building the bundle yourself
+### Android app
 
-```bash
-python build.py
-```
+Download **watch2notif-android.apk** from the
+[latest GitHub release](https://github.com/nico579/watch2notif/releases/latest),
+then open it on your phone and allow installation. Signed Android APKs and
+desktop bundles are built and tested on GitHub Actions and published together.
+An Android AAB is also available for store distribution. Releases retain the
+same signing key; uninstall any older debug installation before installing
+the release APK.
 
-Creates an isolated build environment (`build_venv/`) and produces
-`dist/watch2notif/` with the executable. See `.github/workflows/release.yml`
-for the automated build across the three OSes on every `v*` tag.
+The native app runs directly on Android 8.0 or newer, with the same source
+types, notification history and an optional Claude filter per source. Allow
+notifications to receive alerts. Automatic monitoring checks sources at least
+15 minutes apart; fast mode uses their configured intervals with a persistent
+notification. Android may delay checks depending on battery and connectivity.
+See the [Android guide](android/README.md) for settings and limitations.
+
+### Transfer desktop settings to Android
+
+1. Install the desktop and Android apps from the same release and connect
+   both devices to the same local network.
+2. On the PC, click **Send to phone** in the **Feeds** tab.
+3. On Android, open **Settings → Scan the PC QR**, allow camera access,
+   scan the QR and confirm the import.
+
+Sources, intervals, enabled states, Claude instructions and the desktop
+process's `GITHUB_TOKEN`, `YOUTUBE_API_KEY` and `ANTHROPIC_API_KEY` are
+transferred using authenticated AES-256-GCM encryption. The decryption key
+comes only from the QR. Its code expires after two minutes, works once and
+the PC closes the port after use or cancellation. No cloud service or
+permanent inbound access is required.
+
+Import replaces the phone's sources and establishes a silent initial
+baseline. Each device keeps its own history. Android credentials are
+encrypted in private app storage using Android Keystore. Keep the QR private:
+it grants access to configuration and credentials.
+
+**Import/Export JSON** remains available on both devices for sources and Claude
+instructions, without API keys or history. Private RSS URLs can still contain
+tokens: use the QR to transfer those. On the PC, click **Save** after a JSON import.
+
+## Builds and tests on GitHub
+
+GitHub Actions builds Windows, Linux and macOS bundles plus the Android APK
+and AAB on each `v*` tag. Publication requires Python tests on all three OSes,
+Android/Robolectric tests, Android Lint and executable smoke checks to pass.
+No locally compiled binary is uploaded to releases.
+
+Pull requests and changes to `master` also run CI. See
+[.github/workflows/ci.yml](.github/workflows/ci.yml),
+[android.yml](.github/workflows/android.yml) and
+[release.yml](.github/workflows/release.yml).
 
 ## Sources
 
@@ -218,6 +261,15 @@ Then register the module in `providers/__init__.py`'s `PROVIDERS` dict
 (key = internal kind, value = the module). Nothing else changes:
 `notifier.py` and the settings page (`gui/`) pick up any registered
 provider through `PROVIDERS`, with no per-provider branching.
+
+Android follows the same design with a common Java interface, one class per
+provider and a registry in [ProviderRegistry.java](android/app/src/main/java/io/github/nico579/watch2notif/ProviderRegistry.java).
+The registry supplies available types, labels, input hints and intervals;
+the polling engine and UI remain shared. Each provider validates its source
+and handles its own credential requirements. To add a type on both platforms,
+provide Python and Java implementations using the same `kind` identifier,
+then add support for that type to the transfer format. Android runs its native
+implementation.
 
 ## Existing alternatives
 
