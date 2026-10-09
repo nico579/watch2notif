@@ -124,6 +124,7 @@ public class PairingSessionTest {
             assertEquals(controller.get().getString(R.string.pair_import_question, 5, 3), message.getText().toString());
             assertTrue(Store.get(controller.get()).feeds().isEmpty());
             result.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+            shadowOf(Looper.getMainLooper()).idle();
             assertEquals(PairingSession.State.CLOSED, session.state()); assertNull(session.received());
         } finally { session.close(); connection.release.countDown(); }
     }
