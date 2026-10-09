@@ -45,6 +45,7 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(json.loads(decrypted), config)
         session.close()
         self.assertEqual(session.status()["state"], "used")
+        self.assertEqual(session.status()["last_result"], "sent")
         with self.assertRaises(OSError):
             socket.create_connection(("127.0.0.1", session.server.server_port), timeout=0.5)
 
@@ -53,6 +54,32 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(self.request(session, "wrong")[0], 403)
         self.assertEqual(session.status()["state"], "ready")
         self.assertEqual(self.request(session, qr["code"])[0], 200)
+
+    def test_connection_diagnostics_distinguish_no_contact_from_rejected_requests_without_secrets(self):
+        session, qr, _ = self.session()
+        self.assertEqual(session.status()["connections"], 0)
+        self.assertEqual(session.status()["requests"], 0)
+        self.assertEqual(session.status()["last_result"], "waiting")
+        self.assertEqual(self.request(session, "private-invalid-code")[0], 403)
+        state = session.status()
+        self.assertEqual(state["state"], "ready")
+        self.assertEqual(state["connections"], 1)
+        self.assertEqual(state["requests"], 1)
+        self.assertEqual(state["last_result"], "bad_code")
+        for private in (qr["key"], qr["code"], "private-invalid-code", "dummy-private-test-key"):
+            self.assertNotIn(private, json.dumps(state))
+        self.assertEqual(self.request(session, qr["code"], Host="private-wrong-host:1234")[0], 404)
+        self.assertEqual(session.status()["last_result"], "wrong_endpoint")
+        self.assertNotIn("private-wrong-host", json.dumps(session.status()))
+        session.close()
+        self.assertEqual(session.status()["connections"], 2)
+        self.assertEqual(session.status()["last_result"], "wrong_endpoint")
+
+    def test_connection_diagnostics_remain_bounded(self):
+        session, _, _ = self.session()
+        for _ in range(1100): session.observe(connection=True, request=True)
+        self.assertEqual(session.status()["connections"], 999)
+        self.assertEqual(session.status()["requests"], 999)
 
     def test_concurrent_close_waits_until_listener_is_closed(self):
         session, _, _ = self.session()

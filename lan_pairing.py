@@ -145,6 +145,9 @@ class PairingSession:
         self.code = encode(secrets.token_bytes(32))
         self.address = address
         self.state = "ready"
+        self.connections = 0
+        self.requests = 0
+        self.last_result = "waiting"
         self._closed = False
         self._close_complete = threading.Event()
         self.deadline = time.monotonic() + lifetime
@@ -161,6 +164,7 @@ class PairingSession:
             def setup(self):
                 super().setup()
                 self.connection.settimeout(5)
+                session.observe(connection=True)
 
             def reply(self, status, body=b""):
                 self.send_response(status)
@@ -176,31 +180,39 @@ class PairingSession:
                 self.reply(404)
 
             def do_POST(self):
+                session.observe(request=True)
                 if self.path != "/v1/config" or self.headers.get("Host") != f"{session.address}:{session.server.server_port}":
+                    session.observe("wrong_endpoint")
                     self.reply(404)
                     return
                 # A browser cannot invoke this endpoint through an ordinary cross-origin form.
                 if self.headers.get("Origin") or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                    session.observe("request_rejected")
                     self.reply(403)
                     return
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 0 < length <= 1024:
+                        session.observe("bad_request")
                         self.reply(400)
                         return
                     request = json.loads(self.rfile.read(length))
                     code = request.get("code", "")
                     if not isinstance(code, str) or not code.isascii():
+                        session.observe("bad_code")
                         self.reply(403)
                         return
                 except (OSError, ValueError, AttributeError):
+                    session.observe("bad_request")
                     self.reply(400)
                     return
                 with session.lock:
                     if session.state != "ready" or time.monotonic() >= session.deadline:
+                        if session.state == "ready": session.last_result = "expired"
                         self.reply(410)
                         return
                     if not hmac.compare_digest(code, session.code):
+                        session.last_result = "bad_code"
                         self.reply(403)
                         return
                     response = session.response
@@ -210,10 +222,18 @@ class PairingSession:
                 # Consumption happens before writing: a second simultaneous request cannot win.
                 try:
                     self.reply(200, response)
+                    session.observe("sent")
+                except OSError:
+                    session.observe("write_failed")
                 finally:
                     threading.Thread(target=session.close, args=("used",), daemon=True).start()
 
-        self.server = ThreadingHTTPServer((address, 0), Handler)
+        class Server(ThreadingHTTPServer):
+            def handle_error(self, *_args):
+                # The default handler prints the peer and an arbitrary traceback.
+                session.observe("request_rejected")
+
+        self.server = Server((address, 0), Handler)
         self.server.daemon_threads = True
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
         self.thread.start()
@@ -255,7 +275,16 @@ class PairingSession:
 
     def status(self) -> dict:
         with self.lock:
-            return {"state": self.state, "expires_at": self.expires_at, "address": self.address}
+            return {"state": self.state, "expires_at": self.expires_at, "address": self.address,
+                    "connections": self.connections, "requests": self.requests, "last_result": self.last_result}
+
+    def observe(self, result=None, *, connection=False, request=False):
+        # Bounded, in-memory diagnostics: no peer, URL, QR, code, body or key.
+        with self.lock:
+            if connection: self.connections = min(999, self.connections + 1)
+            if request: self.requests = min(999, self.requests + 1)
+            if result and (self.state == "ready" or result in ("sent", "write_failed")):
+                self.last_result = result
 
 
 class PairingManager:
@@ -296,10 +325,17 @@ class PairingManager:
         with self.lock:
             return self.session.status() if self.session else {"state": "closed"}
 
-    def close(self):
+    def close(self, expected_expires_at=None):
         with self.lock:
+            if expected_expires_at is not None:
+                if not self.session:
+                    return False
+                current = self.session.status()
+                if current["state"] != "ready" or current["expires_at"] != expected_expires_at:
+                    return False
             if self.session:
                 self.session.close()
+            return True
 
 
 manager = PairingManager()

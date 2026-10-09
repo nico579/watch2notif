@@ -26,6 +26,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -54,6 +55,10 @@ public final class MainActivity extends Activity {
     private int selectedTab;
     private boolean refreshing, receiverRegistered;
     private String exportDocument;
+    private PairingSession pairing;
+    private AlertDialog pairingDialog;
+    private PairingSession.State pairingDialogState;
+    private boolean resumed;
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) { if (selectedTab != 2) render(); }
     };
@@ -62,6 +67,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        pairing = (PairingSession) getLastNonConfigurationInstance();
         if (state != null) { selectedTab = state.getInt("tab"); exportDocument = state.getString("export_document"); }
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(color(R.color.background));
@@ -74,17 +80,30 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        resumed = true;
         if (store == null) return;
         if (!receiverRegistered) {
             ContextCompat.registerReceiver(this, updates, new IntentFilter(WatchApp.UPDATED), ContextCompat.RECEIVER_NOT_EXPORTED);
             receiverRegistered = true;
         }
         if (selectedTab != 2) render();
+        if (pairing != null) pairing.attach(this::showPairing);
     }
 
     @Override protected void onPause() {
+        resumed = false;
+        if (pairing != null) pairing.detach();
+        dismissPairingDialog();
         if (receiverRegistered) { unregisterReceiver(updates); receiverRegistered = false; }
         super.onPause();
+    }
+
+    @Override public Object onRetainNonConfigurationInstance() { return pairing; }
+
+    @Override protected void onDestroy() {
+        if (pairing != null && !isChangingConfigurations()) pairing.close();
+        dismissPairingDialog();
+        super.onDestroy();
     }
 
     @Override protected void onSaveInstanceState(Bundle state) {
@@ -404,38 +423,69 @@ public final class MainActivity extends Activity {
     }
 
     private void receiveFromPc(String qr) {
-        toast(R.string.pair_receiving);
-        WatchApp.IO.execute(() -> {
-            try {
-                PairingClient.Received received = PairingClient.receive(this, qr);
-                runOnUiThread(() -> {
-                    if (isDestroyed()) return;
-                    new AlertDialog.Builder(this).setTitle(R.string.pair_title)
-                            .setMessage(getString(R.string.pair_import_question, received.feeds.size(),
-                                    (received.github.isEmpty() ? 0 : 1) + (received.youtube.isEmpty() ? 0 : 1) + (received.claude.isEmpty() ? 0 : 1)))
-                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.import_config, (dialog, which) -> {
-                                try {
-                                    SecretStore secrets = new SecretStore(this);
-                                    String github = received.github.isEmpty() ? secrets.get("github") : received.github;
-                                    String youtube = received.youtube.isEmpty() ? secrets.get("youtube") : received.youtube;
-                                    String claude = received.claude.isEmpty() ? secrets.get("claude") : received.claude;
-                                    store.replaceFeeds(received.feeds, secrets.encrypted(github, youtube, claude));
-                                    Scheduler.sync(this); Scheduler.initialCheck(this); toast(R.string.pair_imported); render();
-                                } catch (Exception failure) { toast(R.string.credentials_failed); }
-                            }).show();
-                });
-            } catch (SourceException failure) {
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    String message = "pair_http".equals(failure.code) ? getString(R.string.pair_http, failure.httpStatus)
-                            : getString(PairingClient.errorMessage(failure.code));
-                    String endpoint = PairingClient.endpoint(qr);
-                    if (!endpoint.isEmpty()) message += "\n\n" + getString(R.string.pair_endpoint, endpoint);
-                    new AlertDialog.Builder(this).setTitle(R.string.pair_title).setMessage(message)
-                            .setPositiveButton(android.R.string.ok, null).show();
-                });
-            }
-        });
+        clearPairing();
+        pairing = new PairingSession(this, qr);
+        if (resumed) pairing.attach(this::showPairing);
+    }
+
+    private void dismissPairingDialog() {
+        if (pairingDialog != null) pairingDialog.dismiss();
+        pairingDialog = null; pairingDialogState = null;
+    }
+
+    private void clearPairing() {
+        if (pairing != null) pairing.close();
+        pairing = null; dismissPairingDialog();
+    }
+
+    private void showPairing() {
+        if (!resumed || pairing == null || store == null || isFinishing() || isDestroyed()) return;
+        PairingSession.State state = pairing.state();
+        if (pairingDialog != null && pairingDialogState == state) return;
+        dismissPairingDialog();
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(R.string.pair_title);
+        if (state == PairingSession.State.RECEIVING) {
+            LinearLayout progress = column(); progress.setPadding(dp(24), dp(12), dp(24), dp(12));
+            progress.addView(new ProgressBar(this));
+            progress.addView(text(getString(R.string.pair_receiving), 16, R.color.foreground), space(12));
+            progress.addView(text(getString(R.string.pair_endpoint, pairing.endpoint), 13, R.color.muted), space(8));
+            dialog.setView(progress).setCancelable(false).setNegativeButton(R.string.cancel, (view, which) -> clearPairing());
+        } else if (state == PairingSession.State.RECEIVED) {
+            PairingClient.Received received = pairing.received();
+            dialog.setMessage(getString(R.string.pair_import_question, received.feeds.size(),
+                    (received.github.isEmpty() ? 0 : 1) + (received.youtube.isEmpty() ? 0 : 1) + (received.claude.isEmpty() ? 0 : 1)))
+                    .setNegativeButton(R.string.cancel, (view, which) -> clearPairing())
+                    .setPositiveButton(R.string.import_config, (view, which) -> importPairing());
+        } else if (state == PairingSession.State.IMPORTED) {
+            dialog.setMessage(R.string.pair_imported).setPositiveButton(android.R.string.ok, (view, which) -> clearPairing());
+        } else if (state == PairingSession.State.FAILED) {
+            SourceException failure = pairing.failure();
+            String message = "pair_http".equals(failure.code) ? getString(R.string.pair_http, failure.httpStatus)
+                    : getString(PairingClient.errorMessage(failure.code));
+            if (!pairing.endpoint.isEmpty()) message += "\n\n" + getString(R.string.pair_endpoint, pairing.endpoint);
+            dialog.setMessage(message).setPositiveButton(android.R.string.ok, (view, which) -> clearPairing());
+        } else return;
+        dialog.setOnCancelListener(view -> clearPairing());
+        pairingDialogState = state;
+        pairingDialog = dialog.show();
+    }
+
+    private void importPairing() {
+        if (pairing == null || pairing.state() != PairingSession.State.RECEIVED) return;
+        PairingClient.Received received = pairing.received();
+        try {
+            SecretStore secrets = new SecretStore(this);
+            String github = received.github.isEmpty() ? secrets.get("github") : received.github;
+            String youtube = received.youtube.isEmpty() ? secrets.get("youtube") : received.youtube;
+            String claude = received.claude.isEmpty() ? secrets.get("claude") : received.claude;
+            store.replaceFeeds(received.feeds, secrets.encrypted(github, youtube, claude));
+            Scheduler.sync(this); Scheduler.initialCheck(this);
+            selectedTab = 0; render(); pairing.imported();
+        } catch (Exception failure) {
+            toast(R.string.credentials_failed);
+            dismissPairingDialog();
+            root.post(this::showPairing);
+        }
     }
 
     private String date(long milliseconds) { return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(milliseconds)); }

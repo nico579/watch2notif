@@ -89,6 +89,7 @@ function page(overrides) {
     element,
     click: id => element(id).emit('click'),
     close: () => element('pair-dialog').close(),
+    tick: () => Promise.all([...timers.values()].map(callback => callback())),
     drainMutations: () => vm.runInContext('pairingMutations', context),
   };
 }
@@ -211,3 +212,78 @@ for (const outcome of ['allowed', 'rejected']) {
     assertControlsDisabled(ui, false);
   });
 }
+
+test('UAC hides the old QR and only displays a fresh ticket after verified permission', { timeout: 5000 }, async () => {
+  const permission = deferred(), started = deferred();
+  let starts = 0;
+  const ui = page({
+    pairNetwork: networks,
+    pairCancel: async () => ({ ok: true }),
+    pairStart: async () => ready(++starts, { supported: true, can_configure: true }),
+    pairAllow: async () => { started.resolve(); return permission.promise; },
+  });
+  await ui.click('pair-start-btn');
+  const allowing = ui.click('pair-allow-btn'); await started.promise;
+  assert.equal(ui.element('pair-qr').src, null);
+  assert.equal(ui.element('pair-qr').hidden, true);
+  assert.equal(ui.element('pair-status').textContent, 'pair_firewall_wait');
+  assertControlsDisabled(ui, true);
+  permission.resolve({ ok: true }); await allowing;
+  assert.equal(starts, 2);
+  assert.equal(ui.element('pair-qr').src, ready(2).qr_svg);
+  assert.equal(ui.element('pair-firewall-status').textContent, 'pair_firewall_allowed');
+  assertControlsDisabled(ui, false);
+});
+
+test('UAC failure remains visible with its cause and never restores the old QR', { timeout: 5000 }, async () => {
+  let starts = 0;
+  const ui = page({
+    pairNetwork: networks,
+    pairCancel: async () => ({ ok: true }),
+    pairStart: async () => ready(++starts, { supported: true, can_configure: true }),
+    pairAllow: async () => ({ ok: false, error: 'cancelled' }),
+  });
+  await ui.click('pair-start-btn'); await ui.click('pair-allow-btn');
+  assert.equal(starts, 1); assert.equal(ui.element('pair-qr').src, null);
+  assert.equal(ui.element('pair-firewall-status').textContent, 'pair_firewall_cancelled');
+  assert.equal(ui.element('pair-status').textContent, 'pair_expired');
+  assertControlsDisabled(ui, false);
+});
+
+test('a late status poll cannot overwrite the administrator progress message', { timeout: 5000 }, async () => {
+  const poll = deferred(), permission = deferred(), started = deferred();
+  const ticket = ready(1, { supported: true, can_configure: true });
+  const ui = page({
+    pairNetwork: networks,
+    pairCancel: async () => ({ ok: true }),
+    pairStart: async () => ticket,
+    pairStatus: async () => poll.promise,
+    pairAllow: async payload => {
+      assert.equal(payload.expires_at, ticket.expires_at);
+      started.resolve(); return permission.promise;
+    },
+  });
+  await ui.click('pair-start-btn');
+  const polling = ui.tick();
+  const allowing = ui.click('pair-allow-btn'); await started.promise;
+  poll.resolve({ state: 'expired', expires_at: ticket.expires_at, connections: 0 }); await polling;
+  assert.equal(ui.element('pair-status').textContent, 'pair_firewall_wait');
+  assert.equal(ui.element('pair-qr').src, null);
+  permission.resolve({ ok: false, error: 'elevation_failed' }); await allowing;
+  assert.equal(ui.element('pair-firewall-status').textContent, 'pair_firewall_elevation_failed');
+});
+
+test('PC status distinguishes an expired QR with no connection from an interrupted response', { timeout: 5000 }, async () => {
+  let state = { state: 'expired', expires_at: Date.now() / 1000 - 1, connections: 0 };
+  const ui = page({
+    pairNetwork: networks,
+    pairCancel: async () => ({ ok: true }),
+    pairStart: async () => ready(1),
+    pairStatus: async () => state,
+  });
+  await ui.click('pair-start-btn'); await ui.tick();
+  assert.equal(ui.element('pair-status').textContent, 'pair_expired pair_no_connection');
+  state = { state: 'used', expires_at: Date.now() / 1000 + 100, connections: 1, last_result: 'write_failed' };
+  await ui.click('pair-renew-btn'); await ui.tick();
+  assert.equal(ui.element('pair-status').textContent, 'pair_write_failed');
+});

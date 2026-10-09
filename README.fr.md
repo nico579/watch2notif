@@ -143,9 +143,23 @@ se fermer après usage, annulation ou deux minutes. Avec ce consentement explici
 les blocages TCP généraux du seul exécutable sur le profil Public sont désactivés
 et remplacés par cette permission limitée. Les blocages UDP, Privé, Domaine,
 gérés ou plus spécifiques restent en place et peuvent empêcher le transfert.
+Windows demande directement le consentement administrateur, sans ouvrir de
+console PowerShell. L’ancien QR est fermé pendant cette demande ; un nouveau
+QR apparaît après vérification de la règle. Une annulation ou un échec de lecture,
+de création ou de vérification de la règle reste affiché au-dessus du QR.
 Scanner le nouveau QR après autorisation.
 Android utilise le réseau Wi-Fi/Ethernet pour cette seule requête, sans proxy,
 et distingue un délai dépassé, une connexion refusée, un statut HTTP et un QR expiré.
+
+Android affiche immédiatement la progression de la réception, indépendamment
+des vérifications de sources en cours. La réception est limitée à 30 secondes
+au total. La progression, les erreurs et la confirmation d’import résistent à
+une rotation de l’écran ; le contenu du QR et les clés reçues restent en mémoire
+et ne sont jamais enregistrés dans l’état sauvegardé de l’écran. Une annulation
+écarte les réglages reçus. Après un redémarrage du processus, générer un nouveau QR.
+Le PC indique si une connexion locale l’a atteint et si la réponse chiffrée a
+été envoyée. Ces compteurs bornés restent en mémoire, sans journaliser les adresses
+des clients, les corps des requêtes, les codes ou les clés.
 
 L’import remplace les sources du téléphone et établit une référence initiale
 silencieuse. L’historique reste propre à chaque appareil. Les clés Android sont

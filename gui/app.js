@@ -14,7 +14,7 @@ const api = {
   pairStatus: () => fetch('/api/pair-status').then(r => r.json()),
   pairNetwork: () => fetch('/api/pair-network').then(r => r.json()),
   pairCancel: () => _post('/api/pair-cancel', {}),
-  pairAllow: () => _post('/api/pair-allow', {}),
+  pairAllow: (payload) => _post('/api/pair-allow', payload),
   setPause: (paused) => _post('/api/set-pause', { paused }),
   clearHistory: () => _post('/api/clear-history', {}),
 };
@@ -390,6 +390,7 @@ let pairingTimer;
 let pairingNetworks = [];
 let pairingGeneration = 0;
 let pairingMutations = Promise.resolve();
+let pairingExpiresAt = 0;
 
 // Start and cancel requests must reach the server in order, even if a dialog
 // closes while a request is in flight and another dialog opens immediately.
@@ -415,6 +416,7 @@ function clearPairQr() {
 
 async function generatePairQr() {
   clearPairQr();
+  pairingExpiresAt = 0;
   const generation = ++pairingGeneration;
   const dialog = document.getElementById('pair-dialog');
   const selector = document.getElementById('pair-address');
@@ -438,6 +440,7 @@ async function generatePairQr() {
     if (generation !== pairingGeneration || !dialog.open || !result) return;
     if (!result.ok) { status.textContent = t(result.error === 'invalid_config' ? 'config_invalid' : 'pair_unavailable'); return; }
     showPairFirewall(result.firewall);
+    pairingExpiresAt = result.expires_at;
     const qr = document.getElementById('pair-qr');
     qr.src = result.qr_svg;
     qr.hidden = false;
@@ -450,7 +453,12 @@ async function generatePairQr() {
         if (state.state !== 'ready' || remaining === 0) {
           clearPairQr();
           status.textContent = t(state.state === 'used' ? 'pair_used' : 'pair_expired');
-        } else status.textContent = t('pair_ready', { address: state.address, seconds: remaining });
+          if (state.state === 'used' && state.last_result === 'write_failed') status.textContent = t('pair_write_failed');
+          if (state.state === 'expired' && state.connections === 0) status.textContent += ' ' + t('pair_no_connection');
+        } else {
+          status.textContent = t('pair_ready', { address: state.address, seconds: remaining });
+          if (state.connections > 0) status.textContent += ' ' + t('pair_connection_received');
+        }
       } catch (error) {
         if (generation === pairingGeneration) {
           clearPairQr();
@@ -494,19 +502,30 @@ document.getElementById('pair-start-btn').addEventListener('click', async (event
 document.getElementById('pair-address').addEventListener('change', generatePairQr);
 document.getElementById('pair-renew-btn').addEventListener('click', generatePairQr);
 document.getElementById('pair-allow-btn').addEventListener('click', async (event) => {
-  const generation = pairingGeneration;
+  const generation = ++pairingGeneration;
+  const expiresAt = pairingExpiresAt;
   const dialog = document.getElementById('pair-dialog');
   event.target.disabled = true;
   document.getElementById('pair-address').disabled = true;
   document.getElementById('pair-renew-btn').disabled = true;
+  clearPairQr();
+  document.getElementById('pair-status').textContent = t('pair_firewall_wait');
   const status = document.getElementById('pair-firewall-status');
   status.textContent = t('pair_firewall_wait');
   try {
-    const result = await api.pairAllow();
+    const result = await api.pairAllow({ expires_at: expiresAt });
     if (generation !== pairingGeneration || !dialog.open) return;
-    status.textContent = t(result.ok ? 'pair_firewall_allowed' :
-      ['explicit_block', 'block_all', 'managed_network'].includes(result.error) ? 'pair_firewall_blocked' :
-      result.error === 'pair_expired' ? 'pair_expired' : 'pair_firewall_failed');
+    const errors = {
+      cancelled: 'pair_firewall_cancelled', timeout: 'pair_firewall_timeout',
+      elevation_failed: 'pair_firewall_elevation_failed', rules_read_failed: 'pair_firewall_rules_read_failed',
+      rule_create_failed: 'pair_firewall_rule_create_failed', block_disable_failed: 'pair_firewall_block_disable_failed',
+      verification_failed: 'pair_firewall_verification_failed', rollback_failed: 'pair_firewall_rollback_failed',
+      policy_changed: 'pair_firewall_blocked', rule_conflict: 'pair_firewall_blocked',
+      explicit_block: 'pair_firewall_blocked', block_all: 'pair_firewall_blocked', managed_network: 'pair_firewall_blocked',
+      pair_expired: 'pair_expired',
+    };
+    status.textContent = t(result.ok ? 'pair_firewall_allowed' : errors[result.error] || 'pair_firewall_failed');
+    if (!result.ok) document.getElementById('pair-status').textContent = t('pair_expired');
     if (result.ok) {
       const renewal = generatePairQr();
       const renewedGeneration = pairingGeneration;
@@ -515,7 +534,10 @@ document.getElementById('pair-allow-btn').addEventListener('click', async (event
       }
     }
   } catch (error) {
-    if (generation === pairingGeneration && dialog.open) status.textContent = t('pair_firewall_failed');
+    if (generation === pairingGeneration && dialog.open) {
+      status.textContent = t('pair_firewall_failed');
+      document.getElementById('pair-status').textContent = t('pair_expired');
+    }
   }
   finally {
     if (generation === pairingGeneration && dialog.open) {
@@ -528,6 +550,7 @@ document.getElementById('pair-allow-btn').addEventListener('click', async (event
 document.getElementById('pair-close-btn').addEventListener('click', () => document.getElementById('pair-dialog').close());
 document.getElementById('pair-dialog').addEventListener('close', () => {
   ++pairingGeneration;
+  pairingExpiresAt = 0;
   clearPairQr();
   pairMutation(() => api.pairCancel()).catch(() => {});
 });

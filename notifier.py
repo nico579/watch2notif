@@ -802,7 +802,11 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         # The user explicitly clicks the desktop button. Never configure the
         # firewall merely because a QR is displayed or the app starts.
         status = lan_pairing.manager.status()
-        if status.get("state") != "ready":
+        if status.get("state") != "ready" or _payload.get("expires_at") != status.get("expires_at"):
+            return {"ok": False, "error": "pair_expired"}
+        # Windows consent can outlast the QR. Close this ticket now and show a
+        # fresh one only after the permission's effective state is verified.
+        if not lan_pairing.manager.close(expected_expires_at=status["expires_at"]):
             return {"ok": False, "error": "pair_expired"}
         return windows_firewall.allow(status["address"])
 
