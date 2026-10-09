@@ -21,6 +21,8 @@ public class LivePollService extends Service {
         if (intent != null && STOP.equals(intent.getAction())) {
             state.stop(); finish(); return START_NOT_STICKY;
         }
+        // A new start arriving while this instance is being destroyed must never advertise a dead loop.
+        if (stopping) { state.interrupt(MonitoringState.UNAVAILABLE); finish(); return START_NOT_STICKY; }
         // A null intent is a system restart of an already requested sticky service.
         if (!state.requested() || !state.interruption().isEmpty() || !MonitoringState.eligible(this)) {
             if (!MonitoringState.eligible(this)) state.stop();
@@ -59,8 +61,10 @@ public class LivePollService extends Service {
         try {
             if (!state.requested() || !MonitoringState.eligible(this)) { state.stop(); finish(); return; }
             wake.renew();
-            state.completed(checkSources(), System.currentTimeMillis());
+            PollEngine.Report report = checkSources();
+            if (!stopping) state.completed(report, System.currentTimeMillis());
         } catch (RuntimeException unavailable) {
+            if (stopping) return;
             // ScheduledExecutor would otherwise silently cancel all future checks after an exception.
             state.interrupt(MonitoringState.UNAVAILABLE); finish();
             Notifications.monitoringInterrupted(this, R.string.live_unavailable);
