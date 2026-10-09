@@ -17,7 +17,8 @@ L’AAB est également publié pour la distribution via une boutique Android.
 Tous les fichiers publiés sont construits par **GitHub Actions**, avec le SDK
 Android du runner. Aucun binaire compilé localement n’est téléversé. Les
 pull requests et les changements de `master` exécutent les tests unitaires,
-Robolectric et Android Lint. Les rapports et les captures des écrans sont
+Robolectric, Android Lint et les smoke tests en veille sur émulateurs Android
+11 et 15. Les rapports et les captures des écrans sont
 disponibles dans les artefacts de ces exécutions.
 
 Une étiquette `v*` déclenche la construction des bundles Windows, Linux, macOS,
@@ -182,7 +183,8 @@ après avoir tué son processus, sans réamorcer les sources ni dupliquer les
 notifications. Le souhait de surveillance rapide est conservé sur cet appareil.
 La pause, la désactivation de toutes les sources et l’action Arrêter le mode
 rapide l’effacent. Après un redémarrage du téléphone, le mode automatique
-persiste et le mode rapide reprend à la réouverture de l’application ; aucun
+persiste et une session rapide demandée peut reprendre à la réouverture de
+l’application. Une erreur ou un timeout exige une relance explicite ; aucun
 service `dataSync` n’est lancé depuis un worker ou un récepteur de démarrage.
 
 Android 15+ limite les services `dataSync` à six heures en arrière-plan sur
