@@ -14,7 +14,7 @@ final class PollEngine {
     private static final ReentrantLock POLL_LOCK = new ReentrantLock();
     interface AlertSender { boolean send(Context context, Feed feed, Entry entry); }
     interface Credentials extends Provider.Credentials { }
-    static final class Report { int checked, sent, filtered; boolean busy; }
+    static final class Report { int checked, succeeded, failed, sent, filtered; boolean busy; }
     private final Context context;
     private final Store store;
     private final Providers providers;
@@ -60,7 +60,9 @@ final class PollEngine {
                         state.error = ""; state.httpCode = 0; store.state(snapshot, state);
                     }
                     deliver(snapshot, manual, deadline, report);
+                    report.succeeded++;
                 } catch (Exception failure) {
+                    report.failed++;
                     synchronized (store) {
                         if (!store.current(snapshot, manual)) continue;
                         PollState state = store.state(snapshot); state.lastAttempt = System.currentTimeMillis();

@@ -114,6 +114,25 @@ le mode rapide utilise leurs intervalles avec une notification permanente.
 Android peut retarder la surveillance selon la batterie et la connectivité.
 Voir le [guide Android](android/README.md) pour les réglages et les limites.
 
+**Réglages → Mises à jour de l’application** recherche les releases GitHub,
+télécharge l’APK signé et ouvre l’installateur Android. L’application vérifie
+aussi à son ouverture, avec un cache en mémoire de six heures. Le téléchargement
+utilise les adresses HTTPS officielles ; l’empreinte SHA-256, le package, la
+version et la signature de l’application installée sont vérifiés. Android peut
+d’abord demander d’autoriser les installations depuis watch2notif. Les sources
+et clés chiffrées sont conservées lors d’une mise à jour avec la même signature.
+
+Après l’import, **Réglages → Identifiants des API → Tester les accès** effectue
+un smoke test de chaque source activée et de la clé Claude configurée. Il utilise
+le registre habituel des providers et distingue les réussites, clés manquantes,
+refus d’authentification, problèmes de droits/quota et délais réseau dépassés.
+Les sources désactivées sont ignorées. Le test conserve les états de surveillance
+et l’historique des notifications. Le test Claude envoie un court message de
+diagnostic et utilise l’API payante Anthropic, sans contenu des sources. Un accès
+réussi à une source ne prouve pas que Claude fonctionne. **Vérifier maintenant**
+compte aussi séparément les réussites et les échecs ; les cartes des sources
+affichent la date du dernier accès réussi.
+
 ### Partager les réglages du PC vers Android
 
 1. Installer les versions PC et Android de la même release, puis connecter

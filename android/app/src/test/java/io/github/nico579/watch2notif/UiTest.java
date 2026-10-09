@@ -64,6 +64,8 @@ public class UiTest {
             find(activity.getWindow().getDecorView(), "Réglages").performClick();
             assertNotNull(find(activity.getWindow().getDecorView(), "Clé API Claude (Anthropic)"));
             assertNotNull(find(activity.getWindow().getDecorView(), "Scanner le QR du PC")); screenshot(activity, "android-settings-fr");
+            assertNotNull(find(activity.getWindow().getDecorView(), "Rechercher une mise à jour"));
+            assertNotNull(find(activity.getWindow().getDecorView(), "Tester les accès"));
             find(activity.getWindow().getDecorView(), "Historique").performClick();
             assertNotNull(find(activity.getWindow().getDecorView(), "Vous êtes à jour")); screenshot(activity, "android-history-fr");
         }

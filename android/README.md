@@ -29,6 +29,50 @@ Le numéro de version est lu dans `../update_check.py` et vérifié contre
 l’étiquette de release. Le wrapper Gradle est livré avec une somme SHA-256
 de sa distribution.
 
+## Installer les mises à jour depuis l’application
+
+Dans **Réglages → Mises à jour de l’application**, rechercher une version,
+la télécharger, puis appuyer sur **Installer la mise à jour**. L’application
+consulte également les releases à son ouverture, avec un cache en mémoire de
+six heures. Le premier lancement de l’installateur peut ouvrir l’autorisation
+Android d’installer des applications depuis watch2notif ; revenir ensuite et
+appuyer de nouveau sur Installer. Android demande la confirmation finale.
+Une annulation conserve le téléchargement vérifié pour réessayer.
+
+Seules les releases stables du dépôt `nico579/watch2notif` sont proposées.
+Les requêtes HTTPS et leurs redirections sont limitées aux domaines GitHub
+officiels, sans utiliser les tokens des providers. La taille et le SHA-256 de
+l’APK sont vérifiés (digest de la release ou `SHA256SUMS.txt`), puis son package,
+sa version et sa signature sont comparés à l’application installée. L’APK est
+vérifié de nouveau avant d’être remis à l’installateur. Il reste dans le cache
+privé ; le FileProvider n’expose que le dossier de mises à jour et donne un accès
+en lecture au fichier choisi. La progression survit aux rotations d’écran.
+Les sources et clés chiffrées sont conservées lors d’une installation de même
+signature. Les opérations de mise à jour utilisent un thread distinct des
+vérifications des providers et de la réception du QR.
+
+## Tester les accès après un import
+
+**Réglages → Identifiants des API → Tester les accès** utilise les clés
+enregistrées et interroge réellement chaque source activée avec son provider.
+Les sources désactivées sont ignorées. Le bilan reste visible et survit à une
+rotation : accès réussi, clé manquante, HTTP 401 (authentification), HTTP 403
+(droits, activation de l’API ou quota), HTTP 429 (limite du service), erreur
+de réponse ou de réseau. Trois requêtes au maximum s’exécutent en parallèle ;
+le test s’arrête au bout de deux minutes et signale les vérifications restantes.
+Il ne modifie pas les identifiants vus, notifications en attente ou historiques.
+
+Une clé Claude configurée, ou une source avec filtre IA, déclenche un unique
+appel au même modèle utilisé pour filtrer les nouveautés. L’appel contient un
+court message de diagnostic, sans texte des sources, et est facturé par
+l’API Anthropic. Une clé absente alors qu’un filtre est actif est un échec ;
+Claude sans clé ni filtre configuré est ignoré. Un accès aux sources réussi
+ne valide pas à lui seul la clé Claude. Le succès prouve l’accès au moment du
+test ; les clés, droits, quotas et réseaux peuvent changer ensuite.
+
+Le bilan de **Vérifier maintenant** distingue aussi les réussites et les échecs.
+Chaque carte de source affiche son dernier accès réussi ou son erreur actuelle.
+
 ## Recevoir la configuration du PC par QR
 
 1. Installer le bundle desktop de la même release GitHub et
@@ -199,6 +243,14 @@ le rattrapage ancien, la reprise après échec, les changements de source pendan
 une requête, le filtre Claude, l’import et le chiffrement. Un vecteur à clés
 fictives partagé avec les tests Python vérifie que le déchiffrement Android
 lit exactement les données AES-GCM produites côté PC.
+
+Les tests du smoke test couvrent les cinq providers et Claude, les clés
+manquantes, les refus d’accès, les délais, les sources désactivées et la
+conservation des états. Les tests de mise à jour couvrent les versions stables,
+les redirections HTTPS, empreintes, tailles, signatures, annulations et la
+vérification avant installation. Les appels réseau utilisent des réponses
+fictives en CI ; le bouton Tester les accès permet de valider les vrais
+identifiants sur le téléphone sans les publier dans les tests GitHub.
 
 Les tests PC exercent également le vrai serveur HTTP : mauvais code, expiration,
 usage unique concurrent, fermeture du port et altération du ciphertext. Les

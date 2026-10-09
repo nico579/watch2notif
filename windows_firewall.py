@@ -206,6 +206,11 @@ def _local_matches(scope, address):
         if item in ("*", "Any", address):
             return True
         try:
+            if "-" in item:
+                first, last = (ipaddress.IPv4Address(part.strip()) for part in item.split("-"))
+                if first <= ipaddress.IPv4Address(address) <= last:
+                    return True
+                continue
             if ipaddress.IPv4Address(address) in ipaddress.ip_network(item, strict=False):
                 return True
         except ValueError:
@@ -215,6 +220,9 @@ def _local_matches(scope, address):
 
 def _single_host_scope(scope, address):
     try:
+        if "-" in scope:
+            first, last = (ipaddress.IPv4Address(part.strip()) for part in scope.strip().split("-"))
+            return first == last == ipaddress.IPv4Address(address)
         network = ipaddress.ip_network(scope.strip(), strict=False)
         return network.version == 4 and network.num_addresses == 1 and network.network_address == ipaddress.IPv4Address(address)
     except ValueError:
@@ -311,7 +319,7 @@ function Get-ActiveTcpBlocks($snapshot) {
     })
 }
 function Test-SingleHost($scope) {
-    return ([string]$scope).Trim() -in @(ADDRESS, ADDRESS32, ADDRESSMASK)
+    return ([string]$scope).Trim() -in @(ADDRESS, ADDRESS32, ADDRESSMASK, ADDRESSRANGE)
 }
 function Test-LocalSubnet($scope) {
     $items = @([regex]::Split(([string]$scope).Trim(), '[,\s]+'))
@@ -402,6 +410,7 @@ try {
 }
 """, {"PROGRAM": _quoted(program), "ADDRESS": _quoted(address), "NAME": _quoted(name),
        "ADDRESS32": _quoted(address + "/32"), "ADDRESSMASK": _quoted(address + "/255.255.255.255"),
+       "ADDRESSRANGE": _quoted(address + "-" + address),
        "DESCRIPTION": _quoted(_rule_description(program, address)), "PROBE": _probe_script(program, address)})
 
 
