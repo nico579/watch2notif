@@ -83,7 +83,8 @@ def open_app():
 
 def automatic_scheduled():
     status = shell("dumpsys", "jobscheduler")
-    return bool(re.search(r"JOB #[^\n]*" + re.escape(PACKAGE)
+    # Android 14+ prints a namespace instead of '#' before the UID for WorkManager jobs.
+    return bool(re.search(r"(?m)^[ \t]*JOB [^\n]*" + re.escape(PACKAGE)
                           + r"/androidx\.work\.impl\.background\.systemjob\.SystemJobService", status))
 
 
