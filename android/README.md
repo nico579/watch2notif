@@ -37,7 +37,9 @@ la télécharger, puis appuyer sur **Installer la mise à jour**. L’applicatio
 consulte également les releases à son ouverture, avec un cache en mémoire de
 six heures. Le premier lancement de l’installateur peut ouvrir l’autorisation
 Android d’installer des applications depuis watch2notif ; revenir ensuite et
-appuyer de nouveau sur Installer. Android demande la confirmation finale.
+appuyer de nouveau sur Installer. Si Android a redémarré watch2notif pendant
+cette autorisation, télécharger de nouveau l’APK avant de l’installer.
+Android demande la confirmation finale et peut proposer une analyse Play Protect.
 Une annulation conserve le téléchargement vérifié pour réessayer.
 
 Seules les releases stables du dépôt `nico579/watch2notif` sont proposées.

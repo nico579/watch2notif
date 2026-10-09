@@ -137,6 +137,8 @@ utilise les adresses HTTPS officielles ; l’empreinte SHA-256, le package, la
 version et la signature de l’application installée sont vérifiés. Android peut
 d’abord demander d’autoriser les installations depuis watch2notif. Les sources
 et clés chiffrées sont conservées lors d’une mise à jour avec la même signature.
+Si Android redémarre l’application pendant cette autorisation, télécharger
+de nouveau l’APK avant de l’installer.
 
 Après l’import, **Réglages → Identifiants des API → Tester les accès** effectue
 un smoke test de chaque source activée et de la clé Claude configurée. Il utilise

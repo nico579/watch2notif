@@ -124,6 +124,8 @@ and opens the Android installer. The app also checks when opened, with a
 six-hour in-memory cache. Downloads use official HTTPS endpoints and are
 checked against the release SHA-256, package, version and installed signing
 certificate. Android may first ask you to allow installation from watch2notif.
+If Android restarts the app during that permission step, download the APK
+again, then install it.
 Sources and encrypted keys are retained when upgrading with the same signature.
 
 After importing, use **Settings → API credentials → Test access** for a smoke
