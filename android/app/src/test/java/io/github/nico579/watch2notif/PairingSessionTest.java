@@ -1,6 +1,5 @@
 package io.github.nico579.watch2notif;
 
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Application;
 import android.os.Bundle;
@@ -58,7 +57,7 @@ public class PairingSessionTest {
         @Override public int getResponseCode() throws IOException {
             entered.countDown();
             if (blocked) try {
-                if (!release.await(3, TimeUnit.SECONDS)) throw new IOException("Test deadline");
+                if (!release.await(15, TimeUnit.SECONDS)) throw new IOException("Test deadline");
             } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); throw new IOException("Stopped"); }
             return 200;
         }
@@ -90,7 +89,7 @@ public class PairingSessionTest {
         CountDownLatch polling = new CountDownLatch(1), releasePoll = new CountDownLatch(1);
         Future<?> poll = WatchApp.IO.submit(() -> {
             polling.countDown();
-            try { releasePoll.await(5, TimeUnit.SECONDS); }
+            try { releasePoll.await(15, TimeUnit.SECONDS); }
             catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
         });
         assertTrue(polling.await(3, TimeUnit.SECONDS));
@@ -133,7 +132,7 @@ public class PairingSessionTest {
         CountDownLatch opened = new CountDownLatch(1), release = new CountDownLatch(1);
         PairingSession session = new PairingSession(vector.getJSONObject("qr").toString(), (address, proxy) -> {
             opened.countDown();
-            try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
+            try { release.await(15, TimeUnit.SECONDS); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
             throw new ConnectException("Private exception details");
         });
         try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {

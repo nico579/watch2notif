@@ -29,11 +29,11 @@ final class PairingSession {
         PairingClient.Ticket ticket;
         try {
             ticket = PairingClient.parseTicket(qr);
-            URI address = URI.create(ticket.url);
-            endpoint = address.getHost() + ":" + address.getPort();
         } catch (SourceException invalid) {
             endpoint = ""; failure = invalid; state = State.FAILED; return;
         }
+        URI address = URI.create(ticket.url);
+        endpoint = address.getHost() + ":" + address.getPort();
         // This work must start immediately, even when WatchApp.IO is polling slow providers.
         worker = new Thread(() -> receive(ticket, connections), "watch2notif-pairing");
         worker.setDaemon(true);
