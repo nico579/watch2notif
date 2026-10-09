@@ -1,16 +1,19 @@
-***English** | [Français](README.fr.md)*
+[![EN · English](https://img.shields.io/badge/EN-English-958bea?style=for-the-badge)](README.md)
+[![FR · Français](https://img.shields.io/badge/FR-Fran%C3%A7ais-34334b?style=for-the-badge)](README.fr.md)
+
+[![Latest release](https://img.shields.io/github/v/release/nico579/watch2notif?label=latest%20release)](https://github.com/nico579/watch2notif/releases/latest)
 
 # watch2notif
 
-An app for desktop and Android that watches sources (RSS/Atom feeds, GitHub issues,
-YouTube comments...) and fires a native, clickable notification
-whenever something new shows up. Cross-platform (Windows/Linux/macOS/Android).
+An app for Windows, Linux, macOS and Android that watches RSS/Atom feeds,
+GitHub issues, discussion replies, Sponsors and YouTube comments, and fires
+a native notification whenever something new shows up.
 
 Started as a Reddit inbox watcher (via Reddit's private RSS feeds,
 reddit.com/prefs/feeds), then generalized: any RSS/Atom feed works, plus
 GitHub issues polling for public repos (no auth needed), GitHub
-discussion replies, and YouTube video comments. New source types are
-added as a `providers/` module, nothing else to touch.
+discussion replies, Sponsors and YouTube video comments. New source types
+use a common provider interface and registry on each platform.
 
 ## Screenshots
 
@@ -22,7 +25,7 @@ added as a `providers/` module, nothing else to touch.
 
 - `notifier.py`: background loop, polls the sources enabled in
   `config.json`, each on its own interval, fires a desktop notification
-  (clickable, opens the source's link) for each new entry. Per-source
+  for each new entry. Per-source
   "already seen" state kept in `state/`. `config.json`, `state/` and the
   notification history live in the OS's standard per-user data directory
   (`%APPDATA%` on Windows, XDG data dir on Linux, Application Support on
@@ -35,7 +38,7 @@ added as a `providers/` module, nothing else to touch.
   the default browser), "Update to x.y" when a newer version is out,
   Restart, Stop, and "Create a Desktop shortcut". Pausing, the history and
   the GitHub help link live in the page. It checks the GitHub releases
-  page every 6h and adds that menu entry + one desktop notification when
+  page once an hour and adds that menu entry + one desktop notification when
   a newer version is out. In
   a packaged app, the settings page offers to install it, verifies the
   published asset's size and SHA-256, then replaces the bundle after
@@ -43,9 +46,9 @@ added as a `providers/` module, nothing else to touch.
   history (`update_check.py`, `self_update.py`). A source checkout is
   never modified automatically.
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`,
-  `github_discussion.py`, `youtube_comments.py`), each exposing
+  `github_discussion.py`, `github_sponsors.py`, `youtube_comments.py`), each exposing
   `fetch_entries(source) -> list[Entry]`. Adding a new source type means
-  adding a module here, nothing else changes.
+  adding a module here and registering it in `providers/__init__.py`.
 - `gui/` + `nico579_commons.serveweb`: settings/history page (add/remove sources,
   pick their type, set per-source polling interval, toggle autostart,
   browse the last 200 notifications actually sent, double-click a row to
@@ -75,7 +78,8 @@ python notifier.py   # first run opens the settings page in your browser
 ### Standalone binary
 
 Each release ships pre-built bundles (Windows/Linux/Mac) on the
-[Releases](../../releases) page, no Python required: a single executable,
+[Releases](https://github.com/nico579/watch2notif/releases/latest) page,
+no Python required: a single executable,
 `watch2notif`. Run it to start watching; open the settings/history page
 from its tray icon ("Open") or with `watch2notif --settings`.
 
@@ -99,9 +103,20 @@ the release APK.
 
 The native app runs directly on Android 8.0 or newer, with the same source
 types, notification history and an optional Claude filter per source. Allow
-notifications to receive alerts. Automatic monitoring checks sources at least
-15 minutes apart; fast mode uses their configured intervals with a persistent
-notification. Android may delay checks depending on battery and connectivity.
+notifications to receive alerts. Automatic monitoring schedules checks every
+15 minutes, respecting longer source intervals; Android may delay them.
+Fast mode uses their configured intervals with a persistent
+notification and keeps the CPU available while the screen is off, using more
+battery. **Settings → Background monitoring → Allow background monitoring**
+opens Android’s battery permission so network access can continue during deep
+sleep. Fast mode can resume after Android kills its process, or when reopening
+a previously requested session. Pausing or stopping it clears that request;
+an error or Android time limit requires an explicit restart from Sources.
+The last fast cycle and access counts are visible in Settings. Android 15+ can stop fast mode
+after six background hours; a visible warning explains how to restart it, and
+automatic checks remain scheduled. Android and manufacturer restrictions or
+lost connectivity can still delay checks; force stop suspends monitoring until
+the app is reopened.
 See the [Android guide](android/README.md) for settings and limitations.
 
 **Settings → App updates** checks GitHub releases, downloads the signed APK
@@ -120,6 +135,11 @@ The Claude check sends one short diagnostic message and uses the paid Anthropic
 API; it does not send source content. A successful source fetch alone does not
 prove that Claude is working. **Check now** also reports successes and failures
 separately, and source cards show their last successful access.
+
+You can also enter GitHub, YouTube and Claude keys directly in **Settings →
+API credentials**, then save them. On desktop, use the corresponding environment
+variables described below. The QR transfer imports those desktop credentials
+into the phone’s encrypted storage.
 
 ### Transfer desktop settings to Android
 
@@ -178,11 +198,17 @@ tokens: use the QR to transfer those. On the PC, click **Save** after a JSON imp
 GitHub Actions builds Windows, Linux and macOS bundles plus the Android APK
 and AAB on each `v*` tag. Publication requires Python tests on all three OSes,
 Android/Robolectric tests, Android Lint and executable smoke checks to pass.
+Emulator tests on Android 11 and 15 also verify the real fast service in deep
+sleep with the screen off, notification delivery, recovery after process death
+without duplicates, manual stop and the Android 15 background timeout.
+These tests use a local RSS fixture and dummy credentials; they are required
+for publication. Real source access is checked with **Test access** on the phone.
 No locally compiled binary is uploaded to releases.
 
 Pull requests and changes to `master` also run CI. See
 [.github/workflows/ci.yml](.github/workflows/ci.yml),
-[android.yml](.github/workflows/android.yml) and
+[android.yml](.github/workflows/android.yml),
+[android-background.yml](.github/workflows/android-background.yml) and
 [release.yml](.github/workflows/release.yml).
 
 ## Sources
@@ -192,14 +218,9 @@ Pull requests and changes to `master` also run CI. See
 Any valid RSS/Atom URL works. For Reddit specifically: on
 `https://www.reddit.com/prefs/feeds/`, each feed (inbox, front page,
 saved, upvoted...) has an RSS/JSON link with a private token in the URL.
-This token doesn't expire unless you change your account password.
 Don't share these URLs: they grant read access to the associated private
-content.
-
-Reddit's classic Data API (OAuth, what `praw` uses) now requires a
-moderation use case to register a new application. These private RSS
-feeds remain an official feature, without that restriction, and are
-enough for personal read-only use.
+content. Their availability and access are controlled by Reddit; if a feed
+stops working, check its current URL in your account’s feed settings.
 
 Forums built on SMF (Simple Machines Forum, a common PHP forum engine)
 expose a native per-topic RSS feed, no plugin needed: append
@@ -213,7 +234,8 @@ so it works as a "notify me on new replies to my post" watcher.
 Enter `owner/repo` as the source. Uses GitHub's public REST API, no
 authentication needed for public repos. Rate-limited to 60 requests/hour
 per IP without a token, 5000/hour with one (set the `GITHUB_TOKEN`
-environment variable). If the `gh` CLI is already installed and logged
+environment variable on desktop, or GitHub token in Android settings).
+If the `gh` CLI is already installed and logged
 in, `gh auth token` prints one; otherwise create one manually on
 GitHub.com: avatar menu -> Settings -> Developer settings -> Personal
 access tokens -> Tokens (classic) -> Generate new token (classic). No
@@ -229,18 +251,15 @@ in the URL). Watches one Discussion thread and reports new top-level
 comments and replies. Unlike GitHub issues, Discussions have no REST
 endpoint at all: this goes through GitHub's GraphQL API instead, which
 refuses anonymous requests even on a public repo. The `GITHUB_TOKEN`
-environment variable is therefore required, not just a rate-limit
+credential is therefore required, not just a rate-limit
 booster (same variable as GitHub issues, see above for how to obtain
 one).
 
 ### GitHub Sponsors
 
-Enter your GitHub login (or an organization's) as the source. GitHub sends
-no notification of its own when someone new sponsors you ([confirmed
-here](https://github.com/orgs/community/discussions/41675)): checking the
-Sponsors dashboard by hand is otherwise the only way to know. Goes through
-the GraphQL API like GitHub discussion replies, so `GITHUB_TOKEN` is
-required there too, but with the extra `read:user` scope on top of the
+Enter your GitHub login (or an organization's) as the source. Watches new
+sponsorships through the GraphQL API like GitHub discussion replies, so
+`GITHUB_TOKEN` is required there too, but with the extra `read:user` scope on top of the
 usual ones: that scope is what exposes a stable ID for a sponsor who chose
 to stay anonymous (their profile is hidden, but the sponsorship itself
 still gets a distinct ID, so a second anonymous sponsor is never mistaken
@@ -255,9 +274,14 @@ replies. YouTube exposes an Atom feed for a channel's new uploads, but
 none for comments on a video, so this goes through the YouTube Data API
 v3 instead. Requires a free API key: Google Cloud Console -> APIs &
 Services -> enable "YouTube Data API v3" -> Credentials -> Create API
-key, then set the `YOUTUBE_API_KEY` environment variable. Quota cost is
-2 units per poll (10000/day free allowance), so the default interval is
-a courtesy, not a quota necessity.
+key, then set `YOUTUBE_API_KEY` on desktop or the YouTube API key in Android
+settings. The current provider fetches up to 100 recent threads and the
+replies included in that response; it does not fetch complete reply histories.
+A successful poll makes two calls, costing 2 quota units
+([videos.list](https://developers.google.com/youtube/v3/docs/videos/list),
+[commentThreads.list](https://developers.google.com/youtube/v3/docs/commentThreads/list)).
+The default allowance is [10,000 units per project per day](https://developers.google.com/youtube/v3/getting-started#quota):
+account for all watched videos and both devices when choosing intervals.
 
 ## AI filter (optional)
 
@@ -266,20 +290,21 @@ Some sources are too broad to be useful as they are. A Reddit search for
 your tool, but also billing complaints and pictures of new cameras. Words
 alone cannot tell them apart; reading the message can.
 
-Each source has an **AI filter** button. It opens a text box where you
-describe, in plain words, which entries deserve a notification, for
-example: "Questions from people who want to keep or download their Blink
+On desktop, each source has an **AI filter** button; on Android, edit the
+source’s **AI filter** field. Describe, in plain words, which entries deserve
+a notification, for example: "Questions from people who want to keep or download their Blink
 clips without a subscription. Not billing complaints, not motion detection
 problems." Before notifying a new entry, watch2notif sends its title and
-text to Claude Haiku with your instructions, and only notifies the ones it
+text to Claude Haiku 4.5 with your instructions, and only notifies the ones it
 judges relevant, with a one-line reason at the start of the notification.
 The others are remembered as seen and never sent again. An empty box means
 no filtering.
 
 It needs an Anthropic API key in the `ANTHROPIC_API_KEY` environment
-variable (console.anthropic.com). The API is billed per use, separately
-from any Claude subscription; sorting a few dozen messages a month with
-Haiku costs a few cents. If the key is missing or the API cannot answer,
+variable on desktop, or the Claude key in Android settings
+([Anthropic Console](https://console.anthropic.com)). The API is billed per
+use, separately from any Claude subscription; cost depends on message volume
+and length. If the key is missing or the API cannot answer,
 watch2notif notifies anyway and says so in the notification: an entry is
 never dropped silently.
 

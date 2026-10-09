@@ -2,6 +2,9 @@ package io.github.nico579.watch2notif;
 
 import android.app.Application;
 import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
+import android.provider.Settings;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.view.View;
@@ -33,6 +36,8 @@ public class UiTest {
         File saved = new File(RuntimeEnvironment.getApplication().getFilesDir(), "watch2notif.json");
         if (saved.exists()) assertTrue(saved.delete());
         Notifications.channels(RuntimeEnvironment.getApplication());
+        RuntimeEnvironment.getApplication().getSharedPreferences("monitoring", Context.MODE_PRIVATE).edit().clear().commit();
+        LivePollService.running = false;
         Store.get(RuntimeEnvironment.getApplication()).language("fr");
     }
 
@@ -66,8 +71,23 @@ public class UiTest {
             assertNotNull(find(activity.getWindow().getDecorView(), "Scanner le QR du PC")); screenshot(activity, "android-settings-fr");
             assertNotNull(find(activity.getWindow().getDecorView(), "Rechercher une mise à jour"));
             assertNotNull(find(activity.getWindow().getDecorView(), "Tester les accès"));
+            assertNotNull(find(activity.getWindow().getDecorView(), "Surveillance en arrière-plan"));
+            assertNotNull(find(activity.getWindow().getDecorView(), "Autoriser la surveillance en arrière-plan"));
             find(activity.getWindow().getDecorView(), "Historique").performClick();
             assertNotNull(find(activity.getWindow().getDecorView(), "Vous êtes à jour")); screenshot(activity, "android-history-fr");
+        }
+    }
+
+    @Test public void batteryPermissionBelongsToAndroidAndIsNotSilentlyGranted() throws Exception {
+        try (ActivityController<MainActivity> controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            MainActivity activity = controller.get();
+            find(activity.getWindow().getDecorView(), "Réglages").performClick();
+            assertFalse(MonitoringState.batteryUnrestricted(activity));
+            find(activity.getWindow().getDecorView(), "Autoriser la surveillance en arrière-plan").performClick();
+            Intent request = Shadows.shadowOf(activity).getNextStartedActivity();
+            assertEquals(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, request.getAction());
+            assertEquals("package:" + activity.getPackageName(), request.getDataString());
+            assertFalse(MonitoringState.batteryUnrestricted(activity));
         }
     }
 }

@@ -1,18 +1,20 @@
-*[English](README.md) | **Français***
+[![EN · English](https://img.shields.io/badge/EN-English-34334b?style=for-the-badge)](README.md)
+[![FR · Français](https://img.shields.io/badge/FR-Fran%C3%A7ais-958bea?style=for-the-badge)](README.fr.md)
+
+[![Dernière release](https://img.shields.io/github/v/release/nico579/watch2notif?label=derni%C3%A8re%20release)](https://github.com/nico579/watch2notif/releases/latest)
 
 # watch2notif
 
-Application pour PC et Android qui surveille des sources (flux RSS/Atom, issues
-GitHub, commentaires YouTube...) et affiche une notification native et
-cliquable quand quelque chose de nouveau apparait. Cross-platform
-(Windows/Linux/macOS/Android).
+Application pour Windows, Linux, macOS et Android qui surveille les flux
+RSS/Atom, issues GitHub, réponses de discussion, Sponsors et commentaires
+YouTube, et affiche une notification native quand une nouveauté apparaît.
 
 Parti d'un besoin de surveiller son inbox Reddit (via les flux RSS prives
 de reddit.com/prefs/feeds), puis generalise : n'importe quel flux
 RSS/Atom fonctionne, plus les issues GitHub sur les repos publics (pas
-d'auth necessaire), les reponses a une discussion GitHub, et les
-commentaires de video YouTube. Ajouter un nouveau type de source =
-ajouter un module dans `providers/`, rien d'autre a toucher.
+d'auth necessaire), les reponses a une discussion GitHub, Sponsors et les
+commentaires de video YouTube. Les types de sources utilisent une interface
+de provider commune et un registre sur chaque plateforme.
 
 ## Captures d'ecran
 
@@ -24,7 +26,7 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
 
 - `notifier.py` : boucle de fond, poll les sources activees dans
   `config.json`, chacune avec son propre intervalle, notification
-  desktop cliquable (ouvre le lien de la source) sur chaque nouvelle
+  desktop sur chaque nouvelle
   entree. Etat "deja vu" garde par source dans `state/`. `config.json`,
   `state/` et l'historique des notifications vivent dans le dossier de
   donnees standard de l'OS (`%APPDATA%` sous Windows, dossier XDG sous
@@ -39,7 +41,7 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   quand une version plus recente existe, Redemarrer, Arreter, et Creer un
   raccourci sur le Bureau. La pause, l'historique et le lien d'aide
   GitHub sont dans la page. Verifie la page de
-  releases GitHub toutes les 6h et ajoute cette entree de menu + une
+  releases GitHub une fois par heure et ajoute cette entree de menu + une
   notification desktop unique quand une nouvelle version sort
   (`update_check.py`). Dans l'application empaquetee, la page de reglages
   propose de l'installer, verifie la taille et le SHA-256 de l'asset,
@@ -47,10 +49,10 @@ ajouter un module dans `providers/`, rien d'autre a toucher.
   les reglages et l'historique (`self_update.py`). Un checkout source n'est
   jamais modifie automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
-  `github_issues.py`, `github_discussion.py`, `youtube_comments.py`),
+  `github_issues.py`, `github_discussion.py`, `github_sponsors.py`, `youtube_comments.py`),
   chacun expose `fetch_entries(source) -> list[Entry]`.
-  Ajouter un type de source = ajouter un module ici, rien d'autre ne
-  change.
+  Ajouter un type de source demande un module ici et son enregistrement
+  dans `providers/__init__.py`.
 - `gui/` + `nico579_commons.serveweb` : page de reglages/historique (ajouter/retirer
   des sources, choisir leur type, regler leur intervalle de polling
   individuel, activer l'autostart, parcourir les 200 dernieres
@@ -82,7 +84,8 @@ python notifier.py   # le premier lancement ouvre la page de reglages dans le na
 ### Binaire autonome
 
 Chaque release fournit des bundles pre-construits (Windows/Linux/Mac) sur
-la page [Releases](../../releases), sans Python a installer : un seul
+la page [Releases](https://github.com/nico579/watch2notif/releases/latest),
+sans Python a installer : un seul
 executable, `watch2notif`. Le lancer demarre la surveillance ; la page de
 reglages/historique s'ouvre depuis son icone de tray (Ouvrir) ou
 avec `watch2notif --settings`.
@@ -109,9 +112,22 @@ debug doit être désinstallée avant de passer à l’APK de release.
 L’application native fonctionne directement sur Android 8.0 ou plus récent,
 avec les mêmes types de sources, un historique et un filtre Claude facultatif
 par source. Autoriser les notifications pour recevoir les alertes. La
-surveillance automatique vérifie les sources au minimum toutes les 15 minutes ;
-le mode rapide utilise leurs intervalles avec une notification permanente.
-Android peut retarder la surveillance selon la batterie et la connectivité.
+surveillance automatique planifie les vérifications toutes les 15 minutes,
+en respectant les intervalles plus longs ; Android peut les retarder.
+Le mode rapide utilise leurs intervalles avec une notification permanente.
+Il maintient le processeur disponible écran éteint et consomme davantage de
+batterie. **Réglages → Surveillance en arrière-plan → Autoriser la surveillance
+en arrière-plan** ouvre l’autorisation Android permettant de conserver le
+réseau en veille profonde. Le mode rapide peut reprendre après une interruption
+de son processus par Android ou à la réouverture d’une session demandée.
+Une pause ou un arrêt volontaire annule cette reprise ; une erreur ou une limite
+de durée Android demande une relance explicite depuis Sources. Le dernier cycle
+et le bilan des accès sont visibles dans les réglages. Android 15+ peut l’arrêter
+après six heures en arrière-plan : un
+message indique comment le relancer et le mode automatique reste planifié.
+Les restrictions Android ou du fabricant et une perte de connexion peuvent
+encore retarder les vérifications ; un arrêt forcé suspend la surveillance
+jusqu’à la réouverture de l’application.
 Voir le [guide Android](android/README.md) pour les réglages et les limites.
 
 **Réglages → Mises à jour de l’application** recherche les releases GitHub,
@@ -132,6 +148,11 @@ diagnostic et utilise l’API payante Anthropic, sans contenu des sources. Un ac
 réussi à une source ne prouve pas que Claude fonctionne. **Vérifier maintenant**
 compte aussi séparément les réussites et les échecs ; les cartes des sources
 affichent la date du dernier accès réussi.
+
+Les clés GitHub, YouTube et Claude peuvent aussi être saisies directement dans
+**Réglages → Identifiants des API**, puis enregistrées. Sur PC, utiliser les
+variables d’environnement décrites plus bas. Le transfert QR importe ces clés
+du PC dans le stockage chiffré du téléphone.
 
 ### Partager les réglages du PC vers Android
 
@@ -195,12 +216,18 @@ les transférer. Sur le PC, cliquer **Sauvegarder** après un import JSON.
 GitHub Actions construit les bundles Windows, Linux et macOS ainsi que l’APK
 et l’AAB Android à chaque étiquette `v*`. Les tests Python sur les trois OS,
 les tests Android/Robolectric, Android Lint et le lancement de contrôle des
-exécutables conditionnent la publication. Aucun binaire construit localement
-n’est téléversé dans les releases.
+exécutables conditionnent la publication. Des tests sur émulateurs Android 11
+et 15 vérifient aussi le vrai service rapide en veille profonde écran éteint,
+les notifications, la reprise après mort du processus sans doublons, l’arrêt
+volontaire et le timeout Android 15. Ils utilisent un flux RSS local fictif et
+des clés factices ; leur réussite est obligatoire pour publier. **Tester les
+accès** sur le téléphone valide les accès aux vraies sources.
+Aucun binaire construit localement n’est téléversé dans les releases.
 
 Les pull requests et les changements de `master` exécutent également la CI.
 Voir [.github/workflows/ci.yml](.github/workflows/ci.yml),
-[android.yml](.github/workflows/android.yml) et
+[android.yml](.github/workflows/android.yml),
+[android-background.yml](.github/workflows/android-background.yml) et
 [release.yml](.github/workflows/release.yml).
 
 ## Sources
@@ -210,14 +237,10 @@ Voir [.github/workflows/ci.yml](.github/workflows/ci.yml),
 N'importe quelle URL RSS/Atom valide fonctionne. Pour Reddit
 specifiquement : sur `https://www.reddit.com/prefs/feeds/`, chaque flux
 (inbox, front page, saved, upvoted...) a un lien RSS/JSON avec un token
-prive dans l'URL. Ce token n'expire pas tant que le mot de passe du
-compte ne change pas. Ne pas partager ces URLs : elles donnent un acces
-en lecture au contenu prive associe.
-
-L'API Data Reddit classique (OAuth, ce qu'utilise `praw`) exige
-desormais un cas d'usage de moderation pour enregistrer une nouvelle
-application. Ces flux RSS prives restent une fonctionnalite officielle,
-sans ce blocage, suffisante pour un usage personnel de lecture.
+prive dans l'URL. Ne pas partager ces URLs : elles donnent un acces
+en lecture au contenu prive associe. Leur disponibilité et leurs accès
+dépendent de Reddit ; si un flux ne fonctionne plus, vérifier son URL
+actuelle dans les réglages des flux du compte.
 
 Les forums batis sur SMF (Simple Machines Forum, un moteur de forum PHP
 courant) exposent un flux RSS natif par sujet, sans plugin : ajouter
@@ -232,7 +255,8 @@ reponses a mon post" tout fait.
 Entre `owner/repo` comme source. Utilise l'API REST publique de GitHub,
 pas d'authentification necessaire pour les repos publics. Limite a 60
 requetes/heure par IP sans token, 5000/heure avec un token (variable
-d'environnement `GITHUB_TOKEN`). Si le CLI `gh` est deja installe et
+d'environnement `GITHUB_TOKEN` sur PC, ou token GitHub dans les réglages
+Android). Si le CLI `gh` est deja installe et
 connecte, `gh auth token` en affiche un ; sinon, en creer un a la main
 sur GitHub.com : menu avatar -> Settings -> Developer settings ->
 Personal access tokens -> Tokens (classic) -> Generate new token
@@ -248,18 +272,15 @@ dans l'URL). Surveille un fil de discussion precis et signale les
 nouveaux commentaires et reponses. Contrairement aux issues, les
 Discussions n'ont aucune API REST : ceci passe par l'API GraphQL de
 GitHub, qui refuse les requetes anonymes meme sur un repo public. La
-variable d'environnement `GITHUB_TOKEN` est donc obligatoire, pas juste
+clé `GITHUB_TOKEN` est donc obligatoire, pas juste
 un bonus de limite de debit (meme variable que pour les issues GitHub,
 voir plus haut pour l'obtenir).
 
 ### GitHub Sponsors
 
 Entre ton identifiant GitHub (ou celui d'une organisation) comme source.
-GitHub n'envoie aucune notification quand quelqu'un devient nouveau sponsor
-([confirme ici](https://github.com/orgs/community/discussions/41675)) :
-consulter le tableau de bord Sponsors a la main reste sinon le seul moyen
-de le savoir. Passe par l'API GraphQL comme les reponses de discussion
-GitHub, donc `GITHUB_TOKEN` est requis la aussi, mais avec en plus le scope
+Surveille les nouveaux parrainages via l'API GraphQL comme les reponses de
+discussion GitHub, donc `GITHUB_TOKEN` est requis la aussi, mais avec en plus le scope
 `read:user` par-dessus les scopes habituels : ce scope est ce qui expose un
 identifiant stable pour un sponsor reste anonyme (son profil est cache,
 mais le parrainage lui-meme garde un identifiant distinct, donc un
@@ -276,9 +297,15 @@ Atom pour les nouvelles videos d'une chaine, mais aucun pour les
 commentaires d'une video : ceci passe par l'API YouTube Data v3. Necessite
 une cle API gratuite : Google Cloud Console -> APIs & Services -> activer
 "YouTube Data API v3" -> Credentials -> Create API key, puis definir la
-variable d'environnement `YOUTUBE_API_KEY`. Cout de quota : 2 unites par
-sondage (quota gratuit de 10000/jour), donc l'intervalle par defaut est
-une question de courtoisie, pas de necessite de quota.
+variable `YOUTUBE_API_KEY` sur PC, ou saisir la clé API YouTube dans les
+réglages Android. Le provider actuel lit jusqu’à 100 fils récents et les
+réponses incluses dans le résultat ; il ne récupère pas tout leur historique.
+Une vérification réussie fait deux appels, soit 2 unités de quota
+([videos.list](https://developers.google.com/youtube/v3/docs/videos/list),
+[commentThreads.list](https://developers.google.com/youtube/v3/docs/commentThreads/list)).
+Le quota par défaut est de [10 000 unités par projet et par jour](https://developers.google.com/youtube/v3/getting-started#quota) :
+tenir compte de toutes les vidéos surveillées et des deux appareils pour
+choisir les intervalles.
 
 ## Filtre IA (facultatif)
 
@@ -288,21 +315,22 @@ les personnes a qui votre outil rendrait service, mais aussi des plaintes
 de facturation et des photos de cameras neuves. Les mots seuls ne font pas
 la difference ; la lecture du message, si.
 
-Chaque source a un bouton **Filtre IA**. Il ouvre une zone de texte ou
-l'on decrit, en langage courant, les entrees qui meritent une
-notification, par exemple : "Les questions de personnes qui veulent
+Sur PC, chaque source a un bouton **Filtre IA** ; sur Android, modifier le
+champ **Filtre IA** de la source. Décrire, en langage courant, les entrees qui
+meritent une notification, par exemple : "Les questions de personnes qui veulent
 garder ou telecharger leurs clips Blink sans abonnement. Pas les plaintes
 de facturation, pas les problemes de detection de mouvement." Avant de
 notifier une nouvelle entree, watch2notif envoie son titre et son texte a
-Claude Haiku avec cette consigne, et ne notifie que celles qu'il juge
+Claude Haiku 4.5 avec cette consigne, et ne notifie que celles qu'il juge
 pertinentes, avec en tete de la notification une phrase qui dit pourquoi.
 Les autres sont memorisees comme vues et ne reviennent jamais. Une zone
 vide veut dire : pas de filtre.
 
 Il faut une cle d'API Anthropic dans la variable d'environnement
-`ANTHROPIC_API_KEY` (console.anthropic.com). L'API se paie a l'usage, a
-part de tout abonnement Claude ; trier quelques dizaines de messages par
-mois avec Haiku coute quelques centimes. Si la cle manque ou que l'API ne
+`ANTHROPIC_API_KEY` sur PC, ou dans les réglages Android pour la clé Claude
+([console Anthropic](https://console.anthropic.com)). L'API se paie a l'usage,
+à part de tout abonnement Claude ; le coût dépend du nombre et de la longueur
+des messages. Si la cle manque ou que l'API ne
 repond pas, watch2notif notifie quand meme et le dit dans la
 notification : une entree n'est jamais perdue en silence.
 

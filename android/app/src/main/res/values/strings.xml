@@ -15,7 +15,7 @@
     <string name="checking">Checking…</string>
     <string name="start_live">Start fast mode</string>
     <string name="stop_live">Stop fast mode</string>
-    <string name="live_explanation">Fast mode follows each source’s interval with a permanent notification. Android 15+ may stop it after 6 hours in the background; automatic checks then continue. Battery saving can delay both modes.</string>
+    <string name="live_explanation">Fast mode follows each source’s interval with a permanent notification and keeps the CPU available while the screen is off. This uses more battery. Allow background monitoring in the battery settings to keep network access during deep sleep. Android 15+ limits this service to six background hours; automatic checks then continue.</string>
     <string name="background_note">Automatic checks run at least 15 minutes apart, including after a reboot. Android can delay them. Fast mode uses the intervals you set below. A first successful check records existing items without notifying you.</string>
     <string name="source_count">%1$d active / %2$d sources</string>
     <string name="add_source">Add source</string>
@@ -59,6 +59,17 @@
     <string name="service_body">Tap to view sources · stop to return to automatic checks</string>
     <string name="service_stop">Stop fast mode</string>
     <string name="live_unavailable">Fast mode could not start. Automatic checks remain available.</string>
+    <string name="background_monitoring">Background monitoring</string>
+    <string name="battery_settings">Allow background monitoring</string>
+    <string name="battery_allowed">Battery optimization disabled for watch2notif</string>
+    <string name="battery_restricted">Battery optimization enabled · deep sleep can delay network access</string>
+    <string name="battery_explanation">For fast monitoring with the screen off, allow watch2notif to run without battery optimization in Android settings. The choice belongs to you and increases battery use. Manufacturer restrictions, battery saver and lost connectivity can still interrupt checks. Force stop suspends all monitoring until the app is reopened.</string>
+    <string name="battery_settings_unavailable">Open Android settings, then the battery settings for watch2notif.</string>
+    <string name="live_interrupted">Fast mode interrupted · automatic checks remain scheduled</string>
+    <string name="live_limit">Android stopped fast mode after its background time limit. Automatic checks remain scheduled. Open Sources to start a new fast session.</string>
+    <string name="live_limit_note">On Android 15+, data sync services are limited to six background hours per 24-hour period. Bringing the app to the foreground resets that budget. After a timeout, restart fast mode from Sources.</string>
+    <string name="live_last_cycle">Last completed fast cycle: %1$s · %2$d recorded cycles</string>
+    <string name="live_cycle_result">Last source checks: %1$d successful · %2$d failed</string>
     <string name="empty_history">All caught up</string>
     <string name="empty_history_body">New notifications will appear here. The first check quietly records items already present in your sources.</string>
     <string name="history_note">The 200 most recent notifications. Tap an item to open its link.</string>

@@ -20,6 +20,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  background:
+    name: Surveillance Android en veille
+    uses: ./.github/workflows/android-background.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
   verrous:
     name: Verrous des dependances de distribution
     runs-on: ubuntu-latest
@@ -218,7 +224,7 @@ jobs:
 
   publish:
     name: Publier les cinq fichiers de distribution
-    needs: [build, android]
+    needs: [build, android, background]
     runs-on: ubuntu-latest
     permissions:
       contents: write

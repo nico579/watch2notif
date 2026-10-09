@@ -14,7 +14,7 @@
     <string name="checking">Vérification…</string>
     <string name="start_live">Démarrer le mode rapide</string>
     <string name="stop_live">Arrêter le mode rapide</string>
-    <string name="live_explanation">Le mode rapide suit l’intervalle de chaque source avec une notification permanente. Android 15+ peut l’arrêter après 6 heures en arrière-plan ; les vérifications automatiques prennent alors le relais. L’économie de batterie peut retarder les deux modes.</string>
+    <string name="live_explanation">Le mode rapide suit l’intervalle de chaque source avec une notification permanente et maintient le processeur disponible écran éteint. Il consomme davantage de batterie. Autorisez la surveillance en arrière-plan dans les réglages de batterie pour garder l’accès réseau en veille profonde. Android 15+ limite ce service à six heures en arrière-plan ; les vérifications automatiques prennent alors le relais.</string>
     <string name="background_note">Les vérifications automatiques sont espacées d’au moins 15 minutes, y compris après un redémarrage. Android peut les retarder. Le mode rapide utilise les intervalles définis ci-dessous. La première vérification réussie mémorise les entrées existantes sans vous notifier.</string>
     <string name="source_count">%1$d actives / %2$d sources</string>
     <string name="add_source">Ajouter une source</string>
@@ -56,6 +56,17 @@
     <string name="service_body">Touchez pour voir les sources · arrêtez pour revenir au mode automatique</string>
     <string name="service_stop">Arrêter le mode rapide</string>
     <string name="live_unavailable">Le mode rapide n’a pas pu démarrer. Les vérifications automatiques restent disponibles.</string>
+    <string name="background_monitoring">Surveillance en arrière-plan</string>
+    <string name="battery_settings">Autoriser la surveillance en arrière-plan</string>
+    <string name="battery_allowed">Optimisation de batterie désactivée pour watch2notif</string>
+    <string name="battery_restricted">Optimisation de batterie active · la veille profonde peut retarder l’accès réseau</string>
+    <string name="battery_explanation">Pour surveiller en mode rapide écran éteint, autorisez watch2notif à fonctionner sans optimisation de batterie dans les réglages Android. Ce choix vous appartient et augmente la consommation. Les restrictions du fabricant, l’économie de batterie et une perte de connexion peuvent encore interrompre les vérifications. Un arrêt forcé suspend toute surveillance jusqu’à la réouverture de l’application.</string>
+    <string name="battery_settings_unavailable">Ouvrez les réglages Android, puis les réglages de batterie de watch2notif.</string>
+    <string name="live_interrupted">Mode rapide interrompu · vérifications automatiques toujours planifiées</string>
+    <string name="live_limit">Android a arrêté le mode rapide après sa limite de durée en arrière-plan. Les vérifications automatiques restent planifiées. Ouvrez Sources pour démarrer une nouvelle session rapide.</string>
+    <string name="live_limit_note">Sur Android 15+, les services de synchronisation sont limités à six heures en arrière-plan sur 24 heures. Revenir dans l’application réinitialise ce quota. Après expiration, relancez le mode rapide depuis Sources.</string>
+    <string name="live_last_cycle">Dernier cycle rapide terminé : %1$s · %2$d cycles enregistrés</string>
+    <string name="live_cycle_result">Derniers accès aux sources : %1$d réussis · %2$d échoués</string>
     <string name="empty_history">Vous êtes à jour</string>
     <string name="empty_history_body">Les nouvelles notifications apparaîtront ici. La première vérification mémorise discrètement les entrées déjà présentes dans vos sources.</string>
     <string name="history_note">Les 200 dernières notifications. Touchez une entrée pour ouvrir son lien.</string>

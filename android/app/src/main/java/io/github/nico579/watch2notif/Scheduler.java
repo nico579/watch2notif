@@ -15,6 +15,7 @@ final class Scheduler {
         WorkManager manager = WorkManager.getInstance(context);
         if (Store.get(context).paused() || Store.get(context).feeds().stream().noneMatch(feed -> feed.enabled)) {
             manager.cancelUniqueWork("automatic-poll"); manager.cancelUniqueWork("initial-poll");
+            new MonitoringState(context).stop();
             context.stopService(new android.content.Intent(context, LivePollService.class));
             return;
         }
