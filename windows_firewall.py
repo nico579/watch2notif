@@ -6,6 +6,7 @@ to this packaged executable, TCP, one LAN IPv4 and local-subnet peers. The
 pairing server still controls its own two-minute lifetime and one-use access.
 """
 import base64
+import ctypes
 import gzip
 import hashlib
 import ipaddress
@@ -19,6 +20,90 @@ import sys
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
 CREATE_NO_WINDOW = 0x08000000
+ELEVATION_ERRORS = {
+    10: "policy_changed", 11: "rules_read_failed", 12: "rule_conflict",
+    13: "rule_create_failed", 14: "block_disable_failed", 15: "verification_failed",
+    16: "rollback_failed",
+}
+
+
+class _ShellExecuteInfo(ctypes.Structure):
+    # Fixed-width Win32 integers also keep mocked CI calls portable.
+    _fields_ = [("cbSize", ctypes.c_uint32), ("fMask", ctypes.c_uint32),
+                ("hwnd", ctypes.c_void_p), ("lpVerb", ctypes.c_wchar_p),
+                ("lpFile", ctypes.c_wchar_p), ("lpParameters", ctypes.c_wchar_p),
+                ("lpDirectory", ctypes.c_wchar_p), ("nShow", ctypes.c_int32),
+                ("hInstApp", ctypes.c_void_p), ("lpIDList", ctypes.c_void_p),
+                ("lpClass", ctypes.c_wchar_p), ("hkeyClass", ctypes.c_void_p),
+                ("dwHotKey", ctypes.c_uint32), ("hIcon", ctypes.c_void_p),
+                ("hProcess", ctypes.c_void_p)]
+
+
+def _winapi():
+    shell = ctypes.WinDLL("shell32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    ole = ctypes.WinDLL("ole32", use_last_error=True)
+    shell.ShellExecuteExW.argtypes = [ctypes.POINTER(_ShellExecuteInfo)]
+    shell.ShellExecuteExW.restype = ctypes.c_int32
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    kernel.GetExitCodeProcess.restype = ctypes.c_int32
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int32
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    ole.CoInitializeEx.restype = ctypes.c_int32
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    return shell, kernel, ole
+
+
+def _last_error():
+    return ctypes.get_last_error()
+
+
+def _native_error():
+    error = OSError("Windows elevation failed")
+    error.winerror = _last_error()
+    return error
+
+
+def _elevate(script, timeout):
+    """Ask Windows directly for UAC; wait on this process, without a parent console.
+
+    Only a firewall script crosses the process boundary. There is no temporary
+    script/result file, inherited output pipe, QR, API key or configuration.
+    """
+    shell, kernel, ole = _winapi()
+    initialized = ole.CoInitializeEx(None, 6)  # Apartment-threaded, disable OLE1 DDE.
+    info = _ShellExecuteInfo()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = 0x40 | 0x100 | 0x400  # NOCLOSEPROCESS, NOASYNC, FLAG_NO_UI (UAC still appears).
+    info.lpVerb = "runas"
+    info.lpFile = _powershell()
+    info.lpParameters = subprocess.list2cmdline([
+        "-NoProfile", "-NonInteractive", "-EncodedCommand", _encoded(_compressed_script_bootstrap(script))])
+    info.nShow = 0  # SW_HIDE: the helper console, not the Windows consent dialog.
+    try:
+        if not shell.ShellExecuteExW(ctypes.byref(info)):
+            raise _native_error()
+        if not info.hProcess:
+            raise OSError("Elevation process unavailable")
+        wait = kernel.WaitForSingleObject(info.hProcess, int(timeout * 1000))
+        if wait == 0x102:
+            # Do not terminate an elevated transaction halfway through rollback.
+            raise subprocess.TimeoutExpired("Windows firewall permission", timeout)
+        if wait != 0:
+            raise _native_error()
+        code = ctypes.c_uint32()
+        if not kernel.GetExitCodeProcess(info.hProcess, ctypes.byref(code)):
+            raise _native_error()
+        return code.value
+    finally:
+        if info.hProcess:
+            kernel.CloseHandle(info.hProcess)
+        if initialized in (0, 1):
+            ole.CoUninitialize()
 
 
 def _address(value):
@@ -204,6 +289,7 @@ def _allow_script(program, address):
     name = _rule_name(program, address)
     return _substitute(r"""
 $ErrorActionPreference = 'Stop'
+$failureCode = 10
 $created = $false
 $disabled = New-Object 'System.Collections.Generic.List[string]'
 function Get-RuleScope($rule) {
@@ -246,6 +332,7 @@ try {
             $block.local -notin @('*', 'Any') -or $block.remote -notin @('*', 'Any') -or
             $block.service -ne '') { throw 'Scoped or managed block requires manual review' }
     }
+    $failureCode = 11
     $candidates = @()
     # PersistentStore restricts candidates to local rules, excluding GPO.
     $filters = @(Get-NetFirewallApplicationFilter -PolicyStore PersistentStore -Program PROGRAM -ErrorAction Stop)
@@ -262,6 +349,7 @@ try {
         }
     }
     if ($candidates.Count -ne $activeBlocks.Count) { throw 'Block is not a repairable local rule' }
+    $failureCode = 12
     $existing = Get-NetFirewallRule -PolicyStore PersistentStore -Name NAME -ErrorAction SilentlyContinue
     if ($existing) {
         $scope = Get-RuleScope $existing
@@ -273,6 +361,7 @@ try {
             $scope.service -notin @('Any','') -or [string]$existing.EdgeTraversalPolicy -ne 'Block' -or
             $existing.Description -ne DESCRIPTION) { throw 'Existing owned rule was edited' }
     } else {
+        $failureCode = 13
         New-NetFirewallRule -PolicyStore PersistentStore -Name NAME `
             -DisplayName 'watch2notif - local encrypted configuration' -Group 'watch2notif' `
             -Description DESCRIPTION `
@@ -282,10 +371,12 @@ try {
         $created = $true
     }
     # The narrow replacement exists before the broad Public block is disabled.
+    $failureCode = 14
     foreach ($rule in $candidates) {
         $disabled.Add([string]$rule.Name)
         Set-NetFirewallRule -PolicyStore PersistentStore -Name $rule.Name -Enabled False -ErrorAction Stop | Out-Null
     }
+    $failureCode = 15
     $after = & { PROBE } | ConvertFrom-Json
     $verified = @($after.rules | Where-Object {
         $_.owned -and $_.action -eq 1 -and $_.protocol -eq 6 -and $_.profiles -eq 6 -and
@@ -300,32 +391,18 @@ try {
     # Restore only rules this operation disabled. Rollback does not touch UDP,
     # Private/Domain, GPO, other applications or pre-existing owned allow rules.
     foreach ($ruleName in $disabled) {
-        Set-NetFirewallRule -PolicyStore PersistentStore -Name $ruleName -Enabled True -ErrorAction SilentlyContinue | Out-Null
+        try { Set-NetFirewallRule -PolicyStore PersistentStore -Name $ruleName -Enabled True -ErrorAction Stop | Out-Null }
+        catch { $failureCode = 16 }
     }
-    if ($created) { Remove-NetFirewallRule -PolicyStore PersistentStore -Name NAME -ErrorAction SilentlyContinue | Out-Null }
-    exit 1
+    if ($created) {
+        try { Remove-NetFirewallRule -PolicyStore PersistentStore -Name NAME -ErrorAction Stop | Out-Null }
+        catch { $failureCode = 16 }
+    }
+    exit $failureCode
 }
 """, {"PROGRAM": _quoted(program), "ADDRESS": _quoted(address), "NAME": _quoted(name),
        "ADDRESS32": _quoted(address + "/32"), "ADDRESSMASK": _quoted(address + "/255.255.255.255"),
        "DESCRIPTION": _quoted(_rule_description(program, address)), "PROBE": _probe_script(program, address)})
-
-
-def _elevation_script(inner):
-    # No temporary script, credential or plaintext configuration file. UAC
-    # requests elevation; the elevated PowerShell console stays hidden.
-    return _substitute(r"""
-$ErrorActionPreference = 'Stop'
-try {
-    $child = Start-Process -FilePath POWERSHELL `
-        -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', ENCODED) `
-        -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
-    if ($child.ExitCode -eq 0) { exit 0 }
-    exit 1
-} catch {
-    if ($_.Exception.NativeErrorCode -eq 1223 -or $_.Exception.InnerException.NativeErrorCode -eq 1223) { exit 2 }
-    exit 1
-}
-""", {"POWERSHELL": _quoted(_powershell()), "ENCODED": _quoted(_encoded(_compressed_script_bootstrap(inner)))})
 
 
 def allow(address):
@@ -344,13 +421,13 @@ def allow(address):
     if current["profile"] == "domain":
         return {"ok": False, "error": "managed_network", "status": current}
     try:
-        process = _run(_elevation_script(_allow_script(_program(), address)), timeout=120)
+        code = _elevate(_allow_script(_program(), address), timeout=120)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "timeout"}
-    except OSError:
-        return {"ok": False, "error": "failed"}
-    if process.returncode:
-        return {"ok": False, "error": "cancelled" if process.returncode == 2 else "denied"}
+    except OSError as error:
+        return {"ok": False, "error": "cancelled" if getattr(error, "winerror", None) == 1223 else "elevation_failed"}
+    if code:
+        return {"ok": False, "error": ELEVATION_ERRORS.get(code, "denied")}
     current = status(address)
     return {"ok": current["state"] == "allowed", "error": "verification_failed" if current["state"] != "allowed" else "",
             "status": current}

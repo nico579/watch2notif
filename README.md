@@ -130,10 +130,22 @@ changing the network profile or disabling the firewall; the port still closes
 after use, cancellation or two minutes. With this explicit consent, general
 Public-only TCP block rules for this executable are disabled and replaced by
 the scoped permission. UDP, Private, Domain, managed or more specific block rules
-are left in place and may still prevent transfer. Scan the new QR after permission
-is granted. Android uses
+are left in place and may still prevent transfer. Windows requests administrator
+consent directly, without opening a PowerShell console. The old QR is closed
+while consent is pending; a fresh QR appears only after the rule is verified.
+Cancellation or a failure to read, create or verify the rule stays visible above
+the QR. Scan the new QR after permission is granted. Android uses
 Wi-Fi/Ethernet for this request only, without a proxy, and distinguishes timeouts,
 connection refusal, HTTP status and expired QR codes.
+
+Android displays reception progress immediately, independently of ongoing source
+checks. Reception has a 30-second overall deadline. Progress, errors and import
+confirmation survive screen rotation; QR contents and received keys stay in
+memory and are never written to saved screen state. Cancelling discards the
+received settings. After a process restart, generate a new QR.
+The PC reports whether any local connection reached it and whether the encrypted
+response was sent. These bounded counters are kept in memory without logging
+addresses of peers, request bodies, codes or keys.
 
 Import replaces the phone's sources and establishes a silent initial
 baseline. Each device keeps its own history. Android credentials are

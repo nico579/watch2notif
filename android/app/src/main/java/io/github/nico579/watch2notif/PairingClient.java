@@ -117,12 +117,16 @@ final class PairingClient {
     }
 
     static Received receive(Context context, String qr) throws SourceException {
-        return receive(qr, (address, proxy) -> {
+        return receive(qr, connections(context.getApplicationContext()));
+    }
+
+    static ConnectionFactory connections(Context context) {
+        return (address, proxy) -> {
             ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
             android.net.Network network = localNetwork(manager, address.getHost());
             // Bind this connection only; provider requests keep their normal network.
             return (HttpURLConnection) (network == null ? address.openConnection(proxy) : network.openConnection(address, proxy));
-        });
+        };
     }
 
     static Received receive(String qr) throws SourceException {

@@ -191,16 +191,32 @@ class TransferRouteTests(unittest.TestCase):
         allow.assert_not_called()
 
     def test_firewall_button_requires_active_session_and_uses_its_address(self):
-        with mock.patch.object(notifier.windows_firewall, "allow", return_value={"ok": True}) as allow:
+        def permission(address):
+            self.assertEqual(self.manager.status()["state"], "cancelled")
+            with self.assertRaises(OSError):
+                socket.create_connection((address, self.manager.session.server.server_port), timeout=0.5)
+            return {"ok": True}
+        with mock.patch.object(notifier.windows_firewall, "allow", side_effect=permission) as allow:
             self.assertEqual(self.post("/api/pair-allow", {}), {"ok": False, "error": "pair_expired"})
             allow.assert_not_called()
-            self.assertTrue(self.post("/api/pair-start", self.config())["ok"])
+            started = self.post("/api/pair-start", self.config())
+            self.assertTrue(started["ok"])
             # A client-supplied address cannot widen the permission to another interface.
-            self.assertEqual(self.post("/api/pair-allow", {"address": "0.0.0.0"}), {"ok": True})
+            self.assertEqual(self.post("/api/pair-allow", {"address": "0.0.0.0", "expires_at": started["expires_at"]}), {"ok": True})
             allow.assert_called_once_with("127.0.0.1")
             self.post("/api/pair-cancel", {})
             self.assertEqual(self.post("/api/pair-allow", {}), {"ok": False, "error": "pair_expired"})
             self.assertEqual(allow.call_count, 1)
+
+    def test_delayed_permission_for_an_old_qr_cannot_close_the_new_session(self):
+        with mock.patch.object(notifier.windows_firewall, "allow") as allow:
+            old = self.post("/api/pair-start", self.config())
+            fresh = self.post("/api/pair-start", self.config())
+            self.assertNotEqual(old["expires_at"], fresh["expires_at"])
+            self.assertEqual(self.post("/api/pair-allow", {"expires_at": old["expires_at"]}), {"ok": False, "error": "pair_expired"})
+            self.assertEqual(self.manager.status()["state"], "ready")
+            self.assertEqual(self.manager.status()["expires_at"], fresh["expires_at"])
+            allow.assert_not_called()
 
 
 if __name__ == "__main__":

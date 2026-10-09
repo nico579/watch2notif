@@ -37,7 +37,15 @@ de sa distribution.
 2. Connecter PC et téléphone au même réseau local ; le PC peut être en Ethernet
    et le téléphone en Wi-Fi. Dans les réglages PC, cliquer **Envoyer vers le téléphone**.
 3. Sur Android : **Réglages → Scanner le QR du PC**. Autoriser la caméra,
-   scanner le QR, puis confirmer l’import des sources et des clés.
+   scanner le QR, puis confirmer l’import des sources et des clés. La réception
+   affiche une progression immédiatement, même si une vérification des sources
+   est en cours, et se termine sous 30 secondes ou affiche une erreur persistante.
+
+Une rotation de l’écran conserve la réception et sa confirmation. Le QR et les
+clés reçues restent uniquement en mémoire jusqu’à la confirmation ou l’annulation ;
+ils ne sont pas ajoutés à l’état sauvegardé de l’écran. Après un redémarrage du
+processus Android, générer un nouveau QR. Une confirmation d’import réussi reste
+affichée jusqu’à son acquittement.
 
 Le QR contient une adresse IPv4 privée et un port temporaire, un code aléatoire
 à usage unique et une clé AES de 256 bits. Il expire au bout de **120 secondes**.
@@ -67,6 +75,13 @@ fermé après usage, annulation ou 120 secondes. Le consentement permet de rempl
 les blocages TCP généraux du seul exécutable sur le profil Public par cette
 permission limitée. Les blocages UDP, Privé, Domaine, gérés ou plus spécifiques
 restent en place et peuvent empêcher le transfert. Le profil réseau n’est pas modifié.
+La demande UAC utilise directement Windows et ne lance pas de console PowerShell.
+L’ancien QR est fermé pendant l’autorisation ; le PC en génère un nouveau après
+vérification de la règle. La cause d’un échec reste affichée au-dessus du QR.
+Le PC conserve également des compteurs bornés de connexions et de requêtes et
+un résultat fixe en mémoire, sans enregistrer de corps de requête, de clé,
+de code ou d’adresse de client. Ils distinguent l’absence de connexion locale
+d’une requête rejetée ou d’une réponse chiffrée interrompue.
 Android utilise le Wi-Fi/Ethernet pour cette seule requête, sans proxy ni
 changement du routage des autres connexions. L’erreur distingue délai dépassé,
 connexion refusée, statut HTTP et QR expiré. Générer et scanner un nouveau QR
@@ -187,7 +202,10 @@ lit exactement les données AES-GCM produites côté PC.
 
 Les tests PC exercent également le vrai serveur HTTP : mauvais code, expiration,
 usage unique concurrent, fermeture du port et altération du ciphertext. Les
-tests Robolectric rendent les écrans FR dans les artefacts GitHub pour contrôle
+tests Robolectric vérifient également la réception pendant une surveillance lente,
+la rotation, le retour d’erreur après une pause de l’activité, l’annulation et
+le délai global. Les appels Windows natifs sont simulés en CI, sans demande UAC
+ni modification du pare-feu du runner. Les tests Robolectric rendent les écrans FR dans les artefacts GitHub pour contrôle
 visuel. Les tests et Lint sont aussi exécutés sur la variante release avant
 publication. Le scan caméra, les notifications sur appareil physique et les politiques
 de batterie des fabricants restent à essayer sur un téléphone réel.
