@@ -108,10 +108,10 @@ public class ReleaseUpdatesTest {
     @Test public void incompleteCorruptAndOversizedDownloadsDoNotReplaceTheExistingFile() throws Exception {
         for (byte[] bytes : new byte[][]{new byte[1], new byte[APK.length], new byte[APK.length + 1]}) {
             File directory = Files.createTempDirectory("update-refused").toFile(); File existing = new File(directory, ReleaseUpdates.APK_NAME);
-            Files.writeString(existing.toPath(), "old");
+            Files.write(existing.toPath(), "old".getBytes(StandardCharsets.UTF_8));
             ReleaseUpdates client = new ReleaseUpdates(url -> new Connection(url, bytes));
             fails(R.string.update_file, () -> client.download(release(), directory, (done, total) -> { }));
-            assertEquals("old", Files.readString(existing.toPath())); assertArrayEquals(new String[]{ReleaseUpdates.APK_NAME}, directory.list());
+            assertEquals("old", new String(Files.readAllBytes(existing.toPath()), StandardCharsets.UTF_8)); assertArrayEquals(new String[]{ReleaseUpdates.APK_NAME}, directory.list());
         }
     }
     @Test public void checksumFallbackRequiresOneExactApkEntry() throws Exception {
