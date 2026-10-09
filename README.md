@@ -104,6 +104,23 @@ notifications to receive alerts. Automatic monitoring checks sources at least
 notification. Android may delay checks depending on battery and connectivity.
 See the [Android guide](android/README.md) for settings and limitations.
 
+**Settings → App updates** checks GitHub releases, downloads the signed APK
+and opens the Android installer. The app also checks when opened, with a
+six-hour in-memory cache. Downloads use official HTTPS endpoints and are
+checked against the release SHA-256, package, version and installed signing
+certificate. Android may first ask you to allow installation from watch2notif.
+Sources and encrypted keys are retained when upgrading with the same signature.
+
+After importing, use **Settings → API credentials → Test access** for a smoke
+test of every enabled source and the configured Claude key. It uses the normal
+provider registry and shows successes, missing keys, authentication failures,
+permissions/quota failures and network timeouts separately. Disabled sources
+are skipped. The test preserves monitoring state and notification history.
+The Claude check sends one short diagnostic message and uses the paid Anthropic
+API; it does not send source content. A successful source fetch alone does not
+prove that Claude is working. **Check now** also reports successes and failures
+separately, and source cards show their last successful access.
+
 ### Transfer desktop settings to Android
 
 1. Install the desktop and Android apps from the same release and connect

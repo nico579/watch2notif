@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
@@ -35,6 +36,7 @@ import android.widget.Toast;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
@@ -48,7 +50,7 @@ import java.util.UUID;
 import static io.github.nico579.watch2notif.Models.*;
 
 public final class MainActivity extends Activity {
-    private static final int IMPORT = 10, EXPORT = 11, PERMISSION = 12;
+    private static final int IMPORT = 10, EXPORT = 11, PERMISSION = 12, UPDATE_PERMISSION = 13, UPDATE_INSTALL = 14;
     private Store store;
     private LinearLayout root, content;
     private ScrollView scroll;
@@ -59,6 +61,19 @@ public final class MainActivity extends Activity {
     private AlertDialog pairingDialog;
     private PairingSession.State pairingDialogState;
     private boolean resumed;
+    private UpdateSession appUpdates;
+    private UpdateSession.State displayedUpdateState;
+    private TextView updateStatus, smokeSummary;
+    private Button updateAction, updateCheck, updateCancel;
+    private SmokeSession smoke;
+    private AlertDialog smokeDialog;
+    private LinearLayout smokeRows;
+    private static final class Retained {
+        final PairingSession pairing;
+        final UpdateSession updates;
+        final SmokeSession smoke;
+        Retained(PairingSession pairing, UpdateSession updates, SmokeSession smoke) { this.pairing = pairing; this.updates = updates; this.smoke = smoke; }
+    }
     private final BroadcastReceiver updates = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) { if (selectedTab != 2) render(); }
     };
@@ -67,7 +82,9 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        pairing = (PairingSession) getLastNonConfigurationInstance();
+        Retained retained = (Retained) getLastNonConfigurationInstance();
+        if (retained != null) { pairing = retained.pairing; appUpdates = retained.updates; smoke = retained.smoke; }
+        else appUpdates = new UpdateSession(getApplicationContext());
         if (state != null) { selectedTab = state.getInt("tab"); exportDocument = state.getString("export_document"); }
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(color(R.color.background));
@@ -88,20 +105,28 @@ public final class MainActivity extends Activity {
         }
         if (selectedTab != 2) render();
         if (pairing != null) pairing.attach(this::showPairing);
+        if (smoke != null) smoke.attach(this::showSmoke);
+        appUpdates.attach(this::updateChanged);
+        // Only the real application schedules automatic checks; preview/test activities stay offline.
+        if (getApplication() instanceof WatchApp) appUpdates.check(false);
     }
 
     @Override protected void onPause() {
         resumed = false;
         if (pairing != null) pairing.detach();
+        if (smoke != null) smoke.detach();
+        appUpdates.detach(); dismissSmokeDialog();
         dismissPairingDialog();
         if (receiverRegistered) { unregisterReceiver(updates); receiverRegistered = false; }
         super.onPause();
     }
 
-    @Override public Object onRetainNonConfigurationInstance() { return pairing; }
+    @Override public Object onRetainNonConfigurationInstance() { return new Retained(pairing, appUpdates, smoke); }
 
     @Override protected void onDestroy() {
         if (pairing != null && !isChangingConfigurations()) pairing.close();
+        if (!isChangingConfigurations()) { appUpdates.close(); if (smoke != null) smoke.close(); }
+        dismissSmokeDialog();
         dismissPairingDialog();
         super.onDestroy();
     }
@@ -177,7 +202,12 @@ public final class MainActivity extends Activity {
         }
         root.addView(tabs); scroll = new ScrollView(this); scroll.setFillViewport(true);
         content = column(); content.setPadding(dp(16), 0, dp(16), dp(28)); scroll.addView(content);
+        updateStatus = null; updateAction = updateCheck = updateCancel = null;
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        if (selectedTab != 2 && (appUpdates.state == UpdateSession.State.AVAILABLE || appUpdates.state == UpdateSession.State.READY)) {
+            LinearLayout available = card(); available.addView(text(getString(R.string.update_available, appUpdates.release.version), 14, R.color.accent));
+            addButton(available, R.string.updates, true, view -> { selectedTab = 2; scroll = null; render(); });
+        }
         if (selectedTab == 0) sources(); else if (selectedTab == 1) history(); else settings();
         setContentView(root); root.requestApplyInsets();
         scroll.post(() -> scroll.scrollTo(0, previousScroll));
@@ -218,7 +248,8 @@ public final class MainActivity extends Activity {
             String message = !feed.enabled ? getString(R.string.source_disabled) : state.lastAttempt == 0 ? getString(R.string.never_checked)
                     : getString(R.string.last_checked, date(state.lastAttempt));
             card.addView(text(message, 12, R.color.muted), space(10));
-            if (!state.error.isEmpty()) card.addView(text(getString(SourceException.message(state.error), state.httpCode), 13, R.color.warning), space(6));
+            if (!state.error.isEmpty()) card.addView(text(getString(SourceException.message(state.error, state.httpCode), state.httpCode), 13, R.color.warning), space(6));
+            else if (state.lastSuccess > 0) card.addView(text(getString(R.string.source_access_ok, date(state.lastSuccess)), 12, R.color.success), space(6));
             if (!state.pending.isEmpty()) card.addView(text(getString(R.string.pending_notifications, state.pending.size()), 13, R.color.warning), space(6));
             if (!feed.filter.trim().isEmpty()) {
                 card.addView(text(getString(R.string.ai_filter_active), 12, R.color.accent), space(6));
@@ -241,7 +272,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 refreshing = false;
                 if (!isDestroyed()) {
-                    Toast.makeText(this, report.busy ? getString(R.string.check_busy) : getString(R.string.check_finished, report.checked, report.sent)
+                    Toast.makeText(this, report.busy ? getString(R.string.check_busy) : getString(R.string.check_result, report.succeeded, report.failed, report.sent)
                             + (report.filtered > 0 ? "\n" + getString(R.string.check_filtered, report.filtered) : ""), Toast.LENGTH_LONG).show(); render();
                 }
             });
@@ -342,6 +373,7 @@ public final class MainActivity extends Activity {
         addButton(pairing, R.string.pair_receive, true, view -> new IntentIntegrator(this)
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt(getString(R.string.pair_scan))
                 .setBeepEnabled(false).setOrientationLocked(false).initiateScan());
+        updateCard();
         LinearLayout language = card(); language.addView(heading(getString(R.string.language), 18));
         Spinner selector = new Spinner(this); String[] languages = {getString(R.string.language_system), "Français", "English"};
         selector.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages));
@@ -366,6 +398,11 @@ public final class MainActivity extends Activity {
             try { secret.save(githubField.getText().toString(), youtubeField.getText().toString(), claudeField.getText().toString()); toast(R.string.saved); }
             catch (Exception failure) { toast(R.string.credentials_failed); }
         });
+        note(credentials, R.string.smoke_note);
+        addButton(credentials, R.string.smoke_title, false, view -> {
+            if (smoke == null) smoke = new SmokeSession(getApplicationContext(), store.feeds());
+            smoke.attach(this::showSmoke);
+        });
         LinearLayout config = card(); config.addView(heading(getString(R.string.configuration), 18)); note(config, R.string.import_note);
         addButton(config, R.string.import_config, false, view -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
@@ -387,6 +424,11 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if (request == UPDATE_PERMISSION) {
+            appUpdates.feedback(getPackageManager().canRequestPackageInstalls() ? R.string.update_permission_granted : R.string.update_permission_denied);
+            return;
+        }
+        if (request == UPDATE_INSTALL) { if (result != RESULT_OK) appUpdates.feedback(R.string.update_install_cancelled); return; }
         IntentResult scan = IntentIntegrator.parseActivityResult(request, result, intent);
         if (scan != null) {
             if (scan.getContents() != null) receiveFromPc(scan.getContents());
@@ -426,6 +468,93 @@ public final class MainActivity extends Activity {
         clearPairing();
         pairing = new PairingSession(this, qr);
         if (resumed) pairing.attach(this::showPairing);
+    }
+
+    private void updateCard() {
+        LinearLayout updates = card(); updates.addView(heading(getString(R.string.updates), 18));
+        updates.addView(text(getString(R.string.update_current_version, BuildConfig.VERSION_NAME), 13, R.color.muted), space(8));
+        updateStatus = text("", 14, R.color.foreground); updates.addView(updateStatus, space(10));
+        updateAction = button(R.string.update_download, true, view -> { if (appUpdates.state == UpdateSession.State.READY) installUpdate(); else appUpdates.download(); });
+        updates.addView(updateAction, space(12));
+        updateCheck = button(R.string.update_check, false, view -> appUpdates.check(true)); updates.addView(updateCheck, space(12));
+        updateCancel = button(R.string.cancel, false, view -> appUpdates.cancel()); updates.addView(updateCancel, space(12));
+        note(updates, R.string.update_note); updateControls();
+    }
+    private void updateChanged() {
+        updateControls();
+        if (selectedTab != 2 && displayedUpdateState != appUpdates.state
+                && (appUpdates.state == UpdateSession.State.AVAILABLE || appUpdates.state == UpdateSession.State.READY)) render();
+        displayedUpdateState = appUpdates.state;
+    }
+    private void updateControls() {
+        if (updateStatus == null) return;
+        String message;
+        switch (appUpdates.state) {
+            case CHECKING: message = getString(R.string.update_checking); break;
+            case CURRENT: message = getString(R.string.update_current); break;
+            case AVAILABLE: message = getString(R.string.update_available, appUpdates.release.version); break;
+            case DOWNLOADING: message = getString(R.string.update_downloading, appUpdates.percent); break;
+            case VERIFYING: message = getString(R.string.update_verifying); break;
+            case READY: message = getString(R.string.update_ready, appUpdates.release.version); break;
+            case FAILED: message = getString(appUpdates.failure); break;
+            default: message = getString(R.string.update_idle);
+        }
+        if (appUpdates.feedback != 0) message += "\n" + getString(appUpdates.feedback);
+        updateStatus.setText(message);
+        updateAction.setText(appUpdates.state == UpdateSession.State.READY ? R.string.update_install : R.string.update_download);
+        updateAction.setVisibility(appUpdates.release != null && !appUpdates.busy() ? View.VISIBLE : View.GONE);
+        updateCheck.setEnabled(!appUpdates.busy() && appUpdates.state != UpdateSession.State.READY);
+        updateCancel.setVisibility(appUpdates.busy() ? View.VISIBLE : View.GONE);
+    }
+    @SuppressWarnings("deprecation")
+    private void installUpdate() {
+        try {
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                appUpdates.feedback(R.string.update_permission);
+                startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())), UPDATE_PERMISSION);
+                return;
+            }
+            appUpdates.prepareInstall(file -> {
+                if (!resumed || isFinishing() || isDestroyed()) return;
+                try {
+                    Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".updates", file);
+                    Intent installer = new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).putExtra(Intent.EXTRA_RETURN_RESULT, true);
+                    installer.setClipData(ClipData.newRawUri(getString(R.string.updates), uri));
+                    startActivityForResult(installer, UPDATE_INSTALL);
+                } catch (RuntimeException unavailable) { appUpdates.feedback(R.string.update_installer_unavailable); }
+            });
+        } catch (RuntimeException unavailable) { appUpdates.feedback(R.string.update_installer_unavailable); }
+    }
+    private void dismissSmokeDialog() {
+        if (smokeDialog != null) smokeDialog.dismiss();
+        smokeDialog = null; smokeSummary = null; smokeRows = null;
+    }
+    private void closeSmoke() { if (smoke != null) smoke.close(); smoke = null; dismissSmokeDialog(); }
+    private void showSmoke() {
+        if (!resumed || smoke == null || isFinishing() || isDestroyed()) return;
+        if (smokeDialog == null) {
+            LinearLayout report = column(); report.setPadding(dp(24), dp(12), dp(24), dp(12));
+            smokeSummary = text("", 16, R.color.foreground); report.addView(smokeSummary);
+            ScrollView details = new ScrollView(this); smokeRows = column(); details.addView(smokeRows);
+            report.addView(details, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)));
+            smokeDialog = new AlertDialog.Builder(this).setTitle(R.string.smoke_title).setView(report)
+                    .setPositiveButton(android.R.string.ok, (dialog, which) -> closeSmoke()).setOnCancelListener(dialog -> closeSmoke()).show();
+        }
+        int ok = 0, failed = 0, skipped = 0;
+        smokeRows.removeAllViews();
+        for (AccessSmokeTest.Row row : smoke.rows) {
+            String status; int shade;
+            switch (row.outcome) {
+                case OK: ok++; status = getString(R.string.smoke_ok); shade = R.color.success; break;
+                case FAILED: failed++; status = getString(SourceException.message(row.error, row.httpCode), row.httpCode); shade = R.color.warning; break;
+                case SKIPPED: skipped++; status = getString("disabled".equals(row.error) ? R.string.source_disabled : R.string.smoke_unused); shade = R.color.muted; break;
+                default: status = getString(R.string.smoke_pending); shade = R.color.muted;
+            }
+            smokeRows.addView(text(row.label + " · " + status, 14, shade), space(12));
+        }
+        smokeSummary.setText(getString(smoke.running ? R.string.smoke_running : R.string.smoke_finished, ok, failed, skipped));
+        smokeDialog.getButton(AlertDialog.BUTTON_POSITIVE).setText(smoke.running ? R.string.cancel : android.R.string.ok);
     }
 
     private void dismissPairingDialog() {

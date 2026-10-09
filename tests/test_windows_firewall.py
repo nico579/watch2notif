@@ -49,9 +49,10 @@ class WindowsFirewallTests(unittest.TestCase):
         self.assertNotEqual(name, firewall._rule_name(r"C:\other.exe", self.ADDRESS))
 
     def test_normalized_firewall_scopes_still_restrict_to_one_ipv4_and_local_subnet(self):
-        for scope in (self.ADDRESS, self.ADDRESS + "/32", self.ADDRESS + "/255.255.255.255"):
+        for scope in (self.ADDRESS, self.ADDRESS + "/32", self.ADDRESS + "/255.255.255.255", self.ADDRESS + "-" + self.ADDRESS):
             self.assertTrue(firewall._single_host_scope(scope, self.ADDRESS))
-        for scope in (self.ADDRESS + "/24", "192.168.1.14", "*", self.ADDRESS + ",192.168.1.14"):
+        for scope in (self.ADDRESS + "/24", "192.168.1.14", "*", self.ADDRESS + ",192.168.1.14",
+                      "192.168.1.1-192.168.1.255", "192.168.1.14-192.168.1.14", "192.168.1.13-", "192.168.1.13-192.168.1.13-192.168.1.13"):
             self.assertFalse(firewall._single_host_scope(scope, self.ADDRESS))
         for scope in ("LocalSubnet", "LocalSubnet4", "LocalSubnet4,LocalSubnet6", "LocalSubnet4 LocalSubnet6"):
             self.assertTrue(firewall._local_subnet_scope(scope))
@@ -133,14 +134,22 @@ class WindowsFirewallTests(unittest.TestCase):
         self.assertEqual([call for call in calls if call.get("op") == "remove"],
                          [{"op": "remove", "Name": firewall._rule_name(self.PROGRAM, self.ADDRESS)}])
 
-    def _mocked_allow(self, fail_disable=False):
+    @unittest.skipUnless(sys.platform == "win32", "Mocked PowerShell commands are Windows only")
+    def test_windows_single_address_range_does_not_roll_back_a_valid_permission(self):
+        process, calls = self._mocked_allow(local_scope=self.ADDRESS + "-" + self.ADDRESS)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        self.assertFalse(any(call.get("op") == "remove" for call in calls))
+        self.assertEqual([call for call in calls if call.get("op") == "set"],
+                         [{"op": "set", "Name": "public-tcp", "Enabled": "False"}])
+
+    def _mocked_allow(self, fail_disable=False, local_scope=None):
         # Every NetSecurity cmdlet and both COM snapshots are replaced. This
         # executes template logic on Windows CI, without UAC or policy changes.
         common = dict(owned=False, action=0, protocol=6, local="*", remote="*", ports="*", service="")
         before = dict(profiles=6, enabled=True, public_enabled=True, public_default=0, block_all=False, rules=[dict(common, profiles=4),
             dict(common, profiles=4, protocol=17), dict(common, profiles=2, action=1)])
         after = dict(before, rules=[dict(common, profiles=4, protocol=17),
-            dict(common, owned=True, profiles=6, action=1, local=self.ADDRESS, remote="LocalSubnet")])
+            dict(common, owned=True, profiles=6, action=1, local=local_scope or self.ADDRESS, remote="LocalSubnet")])
         probe = "$script:probeCount++; if ($script:probeCount -eq 1) { Write-Output " + firewall._quoted(json.dumps(before)) + " } else { Write-Output " + firewall._quoted(json.dumps(after)) + " }"
         rules = [dict(Name="public-tcp", Program=self.PROGRAM, Profile=4, Protocol="TCP", Action="Block"),
                  dict(Name="public-udp", Program=self.PROGRAM, Profile=4, Protocol="UDP", Action="Block"),
@@ -223,6 +232,18 @@ function Remove-NetFirewallRule {
         self.assertTrue(firewall._diagnosis(data, self.ADDRESS)["repairable"])
         self.assertEqual(firewall._diagnosis(dict(data, rules=[]), self.ADDRESS)["state"], "unknown")
         self.assertEqual(firewall._diagnosis(dict(data, block_all=True), self.ADDRESS)["reason"], "block_all")
+
+    def test_live_windows_range_snapshot_is_allowed_but_wider_ranges_are_not_owned_permissions(self):
+        rule = dict(owned=True, profiles=6, action=1, protocol=6,
+                    local=self.ADDRESS + "-" + self.ADDRESS, remote="LocalSubnet", ports="*", service="", edge=False)
+        data = dict(profiles=6, enabled=True, block_all=False, rules=[rule])
+        self.assertEqual(firewall._diagnosis(data, self.ADDRESS)["state"], "allowed")
+        rule["local"] = "192.168.1.1-192.168.1.255"
+        self.assertEqual(firewall._diagnosis(data, self.ADDRESS)["state"], "unknown")
+        rule.update(owned=False, action=0, profiles=4)
+        diagnosis = firewall._diagnosis(data, self.ADDRESS)
+        self.assertEqual(diagnosis["reason"], "explicit_block")
+        self.assertFalse(diagnosis["repairable"])
 
     def test_python_development_process_cannot_request_elevation(self):
         self.windows()
