@@ -101,7 +101,16 @@ The native app runs directly on Android 8.0 or newer, with the same source
 types, notification history and an optional Claude filter per source. Allow
 notifications to receive alerts. Automatic monitoring checks sources at least
 15 minutes apart; fast mode uses their configured intervals with a persistent
-notification. Android may delay checks depending on battery and connectivity.
+notification and keeps the CPU available while the screen is off, using more
+battery. **Settings → Background monitoring → Allow background monitoring**
+opens Android’s battery permission so network access can continue during deep
+sleep. Fast mode resumes after a system process restart and when reopening an
+interrupted session; pausing or stopping it clears that request. The last fast
+cycle and access counts are visible in Settings. Android 15+ can stop fast mode
+after six background hours; a visible warning explains how to restart it, and
+automatic checks remain scheduled. Android and manufacturer restrictions or
+lost connectivity can still delay checks; force stop suspends monitoring until
+the app is reopened.
 See the [Android guide](android/README.md) for settings and limitations.
 
 **Settings → App updates** checks GitHub releases, downloads the signed APK

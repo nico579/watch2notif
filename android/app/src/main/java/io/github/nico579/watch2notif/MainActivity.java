@@ -50,7 +50,7 @@ import java.util.UUID;
 import static io.github.nico579.watch2notif.Models.*;
 
 public final class MainActivity extends Activity {
-    private static final int IMPORT = 10, EXPORT = 11, PERMISSION = 12, UPDATE_PERMISSION = 13, UPDATE_INSTALL = 14;
+    private static final int IMPORT = 10, EXPORT = 11, PERMISSION = 12, UPDATE_PERMISSION = 13, UPDATE_INSTALL = 14, BATTERY = 15;
     private Store store;
     private LinearLayout root, content;
     private ScrollView scroll;
@@ -64,6 +64,7 @@ public final class MainActivity extends Activity {
     private UpdateSession appUpdates;
     private UpdateSession.State displayedUpdateState;
     private TextView updateStatus, smokeSummary;
+    private TextView monitoringStatus, batteryStatus;
     private Button updateAction, updateCheck, updateCancel;
     private SmokeSession smoke;
     private AlertDialog smokeDialog;
@@ -75,7 +76,7 @@ public final class MainActivity extends Activity {
         Retained(PairingSession pairing, UpdateSession updates, SmokeSession smoke) { this.pairing = pairing; this.updates = updates; this.smoke = smoke; }
     }
     private final BroadcastReceiver updates = new BroadcastReceiver() {
-        @Override public void onReceive(Context context, Intent intent) { if (selectedTab != 2) render(); }
+        @Override public void onReceive(Context context, Intent intent) { if (selectedTab != 2) render(); else monitoringControls(); }
     };
 
     @Override protected void attachBaseContext(Context base) { super.attachBaseContext(Localisation.context(base)); }
@@ -103,7 +104,8 @@ public final class MainActivity extends Activity {
             ContextCompat.registerReceiver(this, updates, new IntentFilter(WatchApp.UPDATED), ContextCompat.RECEIVER_NOT_EXPORTED);
             receiverRegistered = true;
         }
-        if (selectedTab != 2) render();
+        if (getApplication() instanceof WatchApp) MonitoringState.resumeVisible(this);
+        if (selectedTab != 2) render(); else monitoringControls();
         if (pairing != null) pairing.attach(this::showPairing);
         if (smoke != null) smoke.attach(this::showSmoke);
         appUpdates.attach(this::updateChanged);
@@ -203,6 +205,7 @@ public final class MainActivity extends Activity {
         root.addView(tabs); scroll = new ScrollView(this); scroll.setFillViewport(true);
         content = column(); content.setPadding(dp(16), 0, dp(16), dp(28)); scroll.addView(content);
         updateStatus = null; updateAction = updateCheck = updateCancel = null;
+        monitoringStatus = batteryStatus = null;
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         if (selectedTab != 2 && (appUpdates.state == UpdateSession.State.AVAILABLE || appUpdates.state == UpdateSession.State.READY)) {
             LinearLayout available = card(); available.addView(text(getString(R.string.update_available, appUpdates.release.version), 14, R.color.accent));
@@ -214,8 +217,10 @@ public final class MainActivity extends Activity {
     }
 
     private void sources() {
+        MonitoringState monitoring = new MonitoringState(this);
         LinearLayout status = card(); status.addView(text(getString(R.string.monitoring).toUpperCase(getResources().getConfiguration().getLocales().get(0)), 12, R.color.muted));
-        status.addView(heading(getString(store.paused() ? R.string.paused : LivePollService.running ? R.string.live : R.string.automatic), 19), space(8));
+        status.addView(heading(getString(store.paused() ? R.string.paused : LivePollService.running ? R.string.live
+                : monitoring.requested() ? R.string.live_interrupted : R.string.automatic), 19), space(8));
         List<Feed> feeds = store.feeds(); long active = feeds.stream().filter(feed -> feed.enabled).count();
         status.addView(text(getString(R.string.source_count, active, feeds.size()), 14, R.color.success), space(8));
         addButton(status, store.paused() ? R.string.resume : R.string.pause, false, view -> changePause());
@@ -223,6 +228,16 @@ public final class MainActivity extends Activity {
         refresh.setEnabled(!refreshing && active > 0); status.addView(refresh, space(12));
         Button live = button(LivePollService.running ? R.string.stop_live : R.string.start_live, false, view -> toggleLive());
         live.setEnabled(active > 0 && !store.paused()); status.addView(live, space(12)); note(status, R.string.background_note);
+        if (monitoring.requested() && !LivePollService.running) {
+            note(status, MonitoringState.LIMIT.equals(monitoring.interruption()) ? R.string.live_limit : R.string.live_unavailable);
+            addButton(status, R.string.stop_live, false, view -> stopLive());
+        }
+        if (LivePollService.running || monitoring.requested()) {
+            status.addView(text(getString(MonitoringState.batteryUnrestricted(this) ? R.string.battery_allowed : R.string.battery_restricted),
+                    13, MonitoringState.batteryUnrestricted(this) ? R.color.success : R.color.warning), space(10));
+            if (!MonitoringState.batteryUnrestricted(this)) addButton(status, R.string.battery_settings, false, view -> batterySettings());
+        }
+        if (monitoring.lastCycle() > 0) status.addView(text(getString(R.string.live_last_cycle, date(monitoring.lastCycle()), monitoring.cycles()), 12, R.color.muted), space(8));
         if (!Notifications.allowed(this)) {
             LinearLayout notice = card(); notice.addView(text(getString(R.string.notifications_denied), 14, R.color.warning));
             addButton(notice, R.string.allow_notifications, false, view -> notificationPermission());
@@ -280,13 +295,53 @@ public final class MainActivity extends Activity {
     }
 
     private void toggleLive() {
-        if (LivePollService.running) { stopService(new Intent(this, LivePollService.class)); return; }
+        if (LivePollService.running) { stopLive(); return; }
         if (!Notifications.allowed(this)) { notificationPermission(); return; }
         new AlertDialog.Builder(this).setTitle(R.string.start_live).setMessage(R.string.live_explanation)
                 .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.start_live, (dialog, which) -> {
-                    try { startForegroundService(new Intent(this, LivePollService.class)); }
-                    catch (RuntimeException failure) { toast(R.string.live_unavailable); }
+                    if (!MonitoringState.start(this)) toast(R.string.live_unavailable);
                 }).show();
+    }
+
+    private void stopLive() {
+        new MonitoringState(this).stop(); stopService(new Intent(this, LivePollService.class));
+        Notifications.clearMonitoringInterruption(this); render();
+    }
+
+    private void batterySettings() {
+        try {
+            Intent intent = MonitoringState.batteryUnrestricted(this)
+                    ? new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    : new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, BATTERY);
+        } catch (ActivityNotFoundException unavailable) {
+            try { startActivityForResult(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())), BATTERY); }
+            catch (ActivityNotFoundException missingSettings) { toast(R.string.battery_settings_unavailable); }
+        }
+    }
+
+    private void monitoringCard() {
+        LinearLayout monitoring = card(); monitoring.addView(heading(getString(R.string.background_monitoring), 18));
+        monitoringStatus = text("", 14, R.color.foreground); monitoring.addView(monitoringStatus, space(10));
+        batteryStatus = text("", 14, R.color.foreground); monitoring.addView(batteryStatus, space(10));
+        note(monitoring, R.string.battery_explanation);
+        addButton(monitoring, R.string.battery_settings, false, view -> batterySettings());
+        if (Build.VERSION.SDK_INT >= 35) note(monitoring, R.string.live_limit_note);
+        monitoringControls();
+    }
+
+    private void monitoringControls() {
+        if (batteryStatus == null || monitoringStatus == null) return;
+        boolean unrestricted = MonitoringState.batteryUnrestricted(this);
+        batteryStatus.setText(unrestricted ? R.string.battery_allowed : R.string.battery_restricted);
+        batteryStatus.setTextColor(color(unrestricted ? R.color.success : R.color.warning));
+        MonitoringState state = new MonitoringState(this);
+        String description = getString(store.paused() ? R.string.paused : LivePollService.running ? R.string.live
+                : state.requested() ? R.string.live_interrupted : R.string.automatic);
+        if (state.requested() && !LivePollService.running) description += "\n" + getString(MonitoringState.LIMIT.equals(state.interruption()) ? R.string.live_limit : R.string.live_unavailable);
+        if (state.lastCycle() > 0) description += "\n" + getString(R.string.live_last_cycle, date(state.lastCycle()), state.cycles())
+                + "\n" + getString(R.string.live_cycle_result, state.succeeded(), state.failed());
+        monitoringStatus.setText(description);
     }
 
     private void notificationPermission() {
@@ -374,6 +429,7 @@ public final class MainActivity extends Activity {
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt(getString(R.string.pair_scan))
                 .setBeepEnabled(false).setOrientationLocked(false).initiateScan());
         updateCard();
+        monitoringCard();
         LinearLayout language = card(); language.addView(heading(getString(R.string.language), 18));
         Spinner selector = new Spinner(this); String[] languages = {getString(R.string.language_system), "Français", "English"};
         selector.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, languages));
@@ -424,6 +480,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if (request == BATTERY) { if (selectedTab == 2) monitoringControls(); else render(); return; }
         if (request == UPDATE_PERMISSION) {
             appUpdates.feedback(getPackageManager().canRequestPackageInstalls() ? R.string.update_permission_granted : R.string.update_permission_denied);
             return;

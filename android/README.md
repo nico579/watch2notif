@@ -156,17 +156,47 @@ chaque plateforme.
 - Notifications natives cliquables et historique des 200 dernières notifications.
 - Réglages et notifications en français ou anglais, selon l’appareil ou au choix.
 
-**Automatique** : WorkManager vérifie les sources au minimum toutes les 15 minutes,
+**Automatique** : WorkManager planifie une vérification toutes les 15 minutes,
 en respectant les intervalles plus longs. Les tâches persistent après redémarrage ;
 Android peut les retarder selon la batterie et la connectivité. Un arrêt forcé
 de l’application suspend les tâches jusqu’à sa prochaine ouverture.
 
 **Mode rapide** : un service démarré explicitement depuis l’écran utilise les
-intervalles des sources, avec une notification permanente. Android 15+ limite
-le service `dataSync` à six heures en arrière-plan ; l’application traite ce
-timeout et laisse les tâches automatiques prendre le relais. Ce service ne
-redémarre pas automatiquement au démarrage du téléphone. Le mode rapide ne
-garantit pas un délai exact lorsque le téléphone est en économie d’énergie.
+intervalles des sources, avec une notification permanente et un verrou partiel
+qui maintient le processeur disponible écran éteint. Cette session consomme
+davantage de batterie. Le verrou est libéré immédiatement à l’arrêt, à la pause,
+si toutes les sources sont désactivées, en cas d’erreur et au timeout Android.
+Un bail de dix minutes, renouvelé par la boucle saine, évite qu’une boucle
+bloquée maintienne indéfiniment le processeur éveillé.
+
+Dans **Réglages → Surveillance en arrière-plan**, le bouton **Autoriser la
+surveillance en arrière-plan** ouvre la confirmation Android d’exemption
+d’optimisation de batterie. Cette autorisation reste un choix de l’utilisateur ;
+sans elle, Doze peut ignorer le verrou et suspendre le réseau. Son état est
+affiché dans les sources et les réglages, avec le dernier cycle terminé et le
+bilan des derniers accès. Ces compteurs sont locaux, sans URL, identifiants ni
+clés ; ils ne figurent pas dans les exports de configuration.
+
+Le service est `START_STICKY` : Android peut recréer une session déjà demandée
+après avoir tué son processus, sans réamorcer les sources ni dupliquer les
+notifications. Le souhait de surveillance rapide est conservé sur cet appareil.
+La pause, la désactivation de toutes les sources et l’action Arrêter le mode
+rapide l’effacent. Après un redémarrage du téléphone, le mode automatique
+persiste et le mode rapide reprend à la réouverture de l’application ; aucun
+service `dataSync` n’est lancé depuis un worker ou un récepteur de démarrage.
+
+Android 15+ limite les services `dataSync` à six heures en arrière-plan sur
+24 heures. Le retour de l’application au premier plan réinitialise ce quota.
+À expiration, le verrou est libéré, une notification et un état explicite
+signalent l’interruption, et les tâches automatiques restent planifiées. Le
+mode rapide attend un nouveau démarrage depuis Sources ; il ne contourne pas
+le quota. Les restrictions du fabricant, l’économie de batterie et les pertes
+de connexion peuvent encore retarder la surveillance. Un arrêt forcé suspend
+les deux modes jusqu’à la réouverture.
+
+Références Android : [Doze et exemption de batterie](https://developer.android.com/training/monitoring-device-state/doze-standby),
+[reprise d’un service sticky](https://developer.android.com/reference/android/app/Service#START_STICKY),
+[limite des services au premier plan](https://developer.android.com/develop/background-work/services/fgs/timeout).
 
 **Vérifier maintenant** effectue une vérification manuelle des sources actives,
 y compris pendant une pause. Les notifications bloquées restent en attente,
@@ -251,6 +281,17 @@ les redirections HTTPS, empreintes, tailles, signatures, annulations et la
 vérification avant installation. Les appels réseau utilisent des réponses
 fictives en CI ; le bouton Tester les accès permet de valider les vrais
 identifiants sur le téléphone sans les publier dans les tests GitHub.
+
+Les tests de surveillance couvrent la reprise sticky, l’intention persistante,
+les arrêts volontaires, la pause, les sources désactivées, les erreurs de boucle,
+le quota et la libération du verrou sur Android 8 et 14. Un smoke supplémentaire
+sur émulateurs Android 11 et 15 teste le vrai service, une notification RSS en
+veille profonde écran éteint, la mort de son processus et sa reprise sans
+doublons, l’arrêt volontaire et le maintien des tâches automatiques. Android 15
+exerce aussi son vrai timeout avec un quota temporairement raccourci. Le flux
+est un serveur HTTP local à données fictives ; aucune clé réelle n’est utilisée.
+Ce smoke ne peut s’exécuter que sur un émulateur GitHub, et la publication d’une
+release dépend de sa réussite.
 
 Les tests PC exercent également le vrai serveur HTTP : mauvais code, expiration,
 usage unique concurrent, fermeture du port et altération du ciphertext. Les

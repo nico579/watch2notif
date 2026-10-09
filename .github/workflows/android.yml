@@ -15,6 +15,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  background:
+    name: Surveillance en veille
+    uses: ./.github/workflows/android-background.yml
+
   build:
     name: Tests, lint et APK Android
     runs-on: ubuntu-24.04

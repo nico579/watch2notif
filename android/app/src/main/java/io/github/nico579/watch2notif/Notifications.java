@@ -14,7 +14,7 @@ import static io.github.nico579.watch2notif.Models.*;
 
 final class Notifications {
     static final String ITEMS = "new-items", MONITOR = "monitoring";
-    static final int SERVICE_ID = 1;
+    static final int SERVICE_ID = 1, MONITOR_INTERRUPTED_ID = 2;
 
     static void channels(Context context) {
         Context translated = Localisation.context(context);
@@ -42,6 +42,21 @@ final class Notifications {
                 .setContentTitle(translated.getString(R.string.service_title)).setContentText(translated.getString(R.string.service_body))
                 .setContentIntent(appIntent(context)).setOngoing(true).setOnlyAlertOnce(true)
                 .addAction(new Notification.Action.Builder(null, translated.getString(R.string.service_stop), stop).build()).build();
+    }
+
+    static void clearMonitoringInterruption(Context context) {
+        context.getSystemService(NotificationManager.class).cancel(MONITOR_INTERRUPTED_ID);
+    }
+
+    static void monitoringInterrupted(Context context, int message) {
+        if (!allowed(context)) return;
+        Context translated = Localisation.context(context);
+        String body = translated.getString(message);
+        context.getSystemService(NotificationManager.class).notify(MONITOR_INTERRUPTED_ID,
+                new Notification.Builder(context, MONITOR).setSmallIcon(R.drawable.ic_notification)
+                        .setContentTitle(translated.getString(R.string.live_interrupted)).setContentText(body)
+                        .setStyle(new Notification.BigTextStyle().bigText(body)).setContentIntent(appIntent(context))
+                        .setAutoCancel(true).build());
     }
 
     static boolean send(Context context, Feed feed, Entry entry) {

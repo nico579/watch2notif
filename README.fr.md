@@ -109,9 +109,19 @@ debug doit être désinstallée avant de passer à l’APK de release.
 L’application native fonctionne directement sur Android 8.0 ou plus récent,
 avec les mêmes types de sources, un historique et un filtre Claude facultatif
 par source. Autoriser les notifications pour recevoir les alertes. La
-surveillance automatique vérifie les sources au minimum toutes les 15 minutes ;
+surveillance automatique planifie les vérifications toutes les 15 minutes ;
 le mode rapide utilise leurs intervalles avec une notification permanente.
-Android peut retarder la surveillance selon la batterie et la connectivité.
+Il maintient le processeur disponible écran éteint et consomme davantage de
+batterie. **Réglages → Surveillance en arrière-plan → Autoriser la surveillance
+en arrière-plan** ouvre l’autorisation Android permettant de conserver le
+réseau en veille profonde. Le mode rapide reprend après une interruption de son
+processus par Android ou à la réouverture ; une pause ou un arrêt volontaire
+annule cette reprise. Le dernier cycle et le bilan des accès sont visibles dans
+les réglages. Android 15+ peut l’arrêter après six heures en arrière-plan : un
+message indique comment le relancer et le mode automatique reste planifié.
+Les restrictions Android ou du fabricant et une perte de connexion peuvent
+encore retarder les vérifications ; un arrêt forcé suspend la surveillance
+jusqu’à la réouverture de l’application.
 Voir le [guide Android](android/README.md) pour les réglages et les limites.
 
 **Réglages → Mises à jour de l’application** recherche les releases GitHub,
