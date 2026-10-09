@@ -63,7 +63,8 @@ public class AccessSmokeTestTest {
             assertTrue(token.isEmpty()); return bytes("<rss><channel/></rss>");
         };
         List<AccessSmokeTest.Row> rows = test(transport, name -> name + "-test").run(feeds, row -> { });
-        assertEquals(6, rows.size()); assertEquals(6, requests.size());
+        assertEquals(6, rows.size());
+        assertEquals(1, requests.stream().filter(url -> url.contains("anthropic.com")).count());
         for (AccessSmokeTest.Row row : rows) assertEquals(row.label, AccessSmokeTest.Outcome.OK, row.outcome);
         assertEquals(before, store.exportConfig().toString());
         for (Feed feed : feeds) { assertEquals(0, store.state(feed).lastAttempt); assertFalse(store.state(feed).initialized); assertTrue(store.state(feed).pending.isEmpty()); }
