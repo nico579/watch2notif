@@ -83,10 +83,12 @@ python notifier.py   # le premier lancement ouvre la page de reglages dans le na
 
 ### Binaire autonome
 
-Chaque release fournit des bundles pre-construits (Windows/Linux/Mac) sur
+Chaque release fournit des bundles préconstruits (Windows/Linux x86_64,
+macOS arm64) sur
 la page [Releases](https://github.com/nico579/watch2notif/releases/latest),
-sans Python a installer : un seul
-executable, `watch2notif`. Le lancer demarre la surveillance ; la page de
+sans Python à installer. Extraire l’archive et conserver le dossier
+`watch2notif` complet, y compris `_internal`, ou le bundle `.app` macOS.
+Lancer `watch2notif.exe`, `watch2notif` ou l’application macOS démarre la surveillance ; la page de
 reglages/historique s'ouvre depuis son icone de tray (Ouvrir) ou
 avec `watch2notif --settings`.
 

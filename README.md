@@ -77,10 +77,11 @@ python notifier.py   # first run opens the settings page in your browser
 
 ### Standalone binary
 
-Each release ships pre-built bundles (Windows/Linux/Mac) on the
+Each release ships pre-built bundles (Windows/Linux x86_64, macOS arm64) on the
 [Releases](https://github.com/nico579/watch2notif/releases/latest) page,
-no Python required: a single executable,
-`watch2notif`. Run it to start watching; open the settings/history page
+with no Python installation required. Extract the archive and keep the complete
+`watch2notif` folder together, including `_internal`, or the macOS `.app` bundle.
+Run `watch2notif.exe`, `watch2notif`, or the macOS app to start watching; open the settings/history page
 from its tray icon ("Open") or with `watch2notif --settings`.
 
 When a compatible update is published, the settings page shows a banner
