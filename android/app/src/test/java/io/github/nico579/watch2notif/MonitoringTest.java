@@ -27,6 +27,7 @@ public class MonitoringTest {
     public static class ControlledService extends LivePollService {
         int checks, loops;
         boolean fail;
+        Runnable duringCheck;
         @Override java.util.concurrent.ScheduledExecutorService createExecutor() {
             return new java.util.concurrent.ScheduledThreadPoolExecutor(1) {
                 @Override public java.util.concurrent.ScheduledFuture<?> scheduleWithFixedDelay(Runnable work, long initial, long delay, java.util.concurrent.TimeUnit unit) {
@@ -36,6 +37,7 @@ public class MonitoringTest {
         }
         @Override PollEngine.Report checkSources() {
             checks++;
+            if (duringCheck != null) duringCheck.run();
             if (fail) throw new IllegalStateException("simulated storage failure");
             PollEngine.Report report = new PollEngine.Report(); report.checked = report.succeeded = 1; return report;
         }
@@ -43,6 +45,7 @@ public class MonitoringTest {
 
     @Before public void reset() throws Exception {
         context = RuntimeEnvironment.getApplication();
+        if (android.os.Build.VERSION.SDK_INT >= 33) org.robolectric.Shadows.shadowOf((Application)context).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS);
         Field singleton = Store.class.getDeclaredField("instance"); singleton.setAccessible(true); singleton.set(null, null);
         File saved = new File(context.getFilesDir(), "watch2notif.json"); if (saved.exists()) assertTrue(saved.delete());
         context.getSharedPreferences("monitoring", Context.MODE_PRIVATE).edit().clear().commit();
@@ -132,6 +135,24 @@ public class MonitoringTest {
     @Test public void closedWakeLockCannotBeReacquiredByAnOldWorker() {
         MonitorWakeLock wake = new MonitorWakeLock(context); wake.renew(); assertTrue(wake.held());
         wake.close(); wake.renew(); assertFalse(wake.held()); wake.close();
+    }
+
+    @Test public void latePollFailureCannotOverwriteTheAndroidTimeoutOrRecordAHealthyCycle() throws Exception {
+        state.request(); ServiceController<ControlledService> controller = Robolectric.buildService(ControlledService.class).create();
+        ControlledService service = controller.get(); service.onStartCommand(new Intent(), 0, 1);
+        service.duringCheck = () -> service.onTimeout(1, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        service.fail = true; service.tick();
+        assertEquals(MonitoringState.LIMIT, state.interruption()); assertEquals(0, state.cycles());
+        assertFalse(wake(service).held()); assertFalse(LivePollService.running); controller.destroy();
+    }
+
+    @Test public void startArrivingDuringDestructionCannotAdvertiseADeadLoop() throws Exception {
+        state.request(); ServiceController<ControlledService> controller = Robolectric.buildService(ControlledService.class).create();
+        ControlledService service = controller.get(); service.onStartCommand(new Intent(), 0, 1);
+        service.onStartCommand(new Intent().setAction(LivePollService.STOP), 0, 2);
+        state.request(); assertEquals(Service.START_NOT_STICKY, service.onStartCommand(new Intent(), 0, 3));
+        assertFalse(LivePollService.running); assertFalse(wake(service).held()); assertEquals(1, service.loops);
+        assertEquals(MonitoringState.UNAVAILABLE, state.interruption()); controller.destroy();
     }
 
     @Test public void healthSkipsBusyPassesAndLimitsEmptyHeartbeatWrites() {
