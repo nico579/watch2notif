@@ -17,6 +17,7 @@ const api = {
   pairAllow: (payload) => _post('/api/pair-allow', payload),
   setPause: (paused) => _post('/api/set-pause', { paused }),
   clearHistory: () => _post('/api/clear-history', {}),
+  deleteHistoryEntry: (payload) => _post('/api/delete-history-entry', payload),
 };
 
 // --- la pause, dans le panneau « Reglages » commun ------------------------------------
@@ -290,7 +291,28 @@ function renderHistory(entries) {
     } else {
       tdTitle.textContent = entry.title || '';
     }
-    tr.append(tdDate, tdSource, tdTitle);
+    // Retire cette ligne seule. Le serveur la retrouve par horodatage + lien,
+    // pas par rang : une nouvelle notification peut s'etre inseree en tete
+    // depuis l'affichage de la page.
+    const tdRemove = document.createElement('td');
+    tdRemove.className = 'col-remove';
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '×';
+    removeBtn.dataset.i18nTitle = 'history_delete_title';
+    removeBtn.title = t('history_delete_title');
+    removeBtn.addEventListener('click', async () => {
+      removeBtn.disabled = true;
+      try {
+        await api.deleteHistoryEntry({ timestamp: entry.timestamp, link: entry.link || '' });
+      } catch (error) { /* serveur injoignable : la liste rechargee montrera l'etat reel */ }
+      try {
+        renderHistory((await api.history()).entries);
+      } catch (error) { removeBtn.disabled = false; }
+    });
+    tdRemove.appendChild(removeBtn);
+    tr.append(tdDate, tdSource, tdTitle, tdRemove);
     body.appendChild(tr);
   }
 }

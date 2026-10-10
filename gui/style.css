@@ -41,6 +41,7 @@ td input[type=text],td input[type=number],td select{width:100%;background:var(--
 td input[type=number]{width:80px}
 td.col-active{text-align:center;width:44px}
 td.col-remove{width:110px;text-align:right;white-space:nowrap}
+#history-table td.col-remove{width:40px}
 .remove-btn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px}
 .filter-btn{background:none;border:1px solid var(--bd);border-radius:4px;color:var(--dim);
   cursor:pointer;font-size:11px;padding:2px 6px;margin-right:6px;white-space:nowrap}

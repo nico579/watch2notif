@@ -86,6 +86,48 @@ class HistoryLockTests(unittest.TestCase):
             notification_history.append("Feed", "Nouveau", "Auteur", "", "https://x.test")
         self.assertEqual(json.loads(self.history_file.read_text(encoding="utf-8")), avant)
 
+    def ecrire(self, lignes):
+        self.history_file.write_text(json.dumps(lignes), encoding="utf-8")
+
+    @staticmethod
+    def ligne(titre, horodatage, lien="https://x.test"):
+        return {"feed_label": "F", "title": titre, "author": "a", "summary": "", "link": lien,
+                "timestamp": horodatage}
+
+    def test_remove_retire_une_seule_ligne_par_horodatage_et_lien(self):
+        self.ecrire([self.ligne("c", 300.5), self.ligne("b", 200.25), self.ligne("a", 100.125)])
+        self.assertTrue(notification_history.remove(200.25, "https://x.test"))
+        self.assertEqual([ligne["title"] for ligne in notification_history.load()], ["c", "a"])
+
+    def test_remove_tient_bon_quand_une_notification_s_insere_en_tete(self):
+        # La page a affiche [b, a] ; le poll ajoute "nouveau" en tete avant le clic.
+        self.ecrire([self.ligne("b", 200.0), self.ligne("a", 100.0)])
+        notification_history.append("F", "nouveau", "x", "", "https://n.test")
+        self.assertTrue(notification_history.remove(100.0, "https://x.test"))
+        self.assertEqual([ligne["title"] for ligne in notification_history.load()], ["nouveau", "b"])
+
+    def test_remove_ne_retire_qu_une_ligne_si_deux_partagent_le_lien(self):
+        self.ecrire([self.ligne("renvoyee", 200.0), self.ligne("premiere", 100.0)])
+        self.assertTrue(notification_history.remove(200.0, "https://x.test"))
+        self.assertEqual([ligne["title"] for ligne in notification_history.load()], ["premiere"])
+
+    def test_remove_ligne_absente_ou_arguments_invalides(self):
+        avant = [self.ligne("a", 100.0)]
+        self.ecrire(avant)
+        for horodatage, lien in ((999.0, "https://x.test"), (100.0, "https://autre.test"), (None, ""),
+                                 ("pas un nombre", ""), (float("nan"), "")):
+            with self.subTest(horodatage=horodatage, lien=lien):
+                self.assertFalse(notification_history.remove(horodatage, lien))
+        self.assertEqual(notification_history.load(), avant)
+
+    def test_remove_sans_lien(self):
+        self.ecrire([self.ligne("sans lien", 100.0, lien="")])
+        self.assertTrue(notification_history.remove(100.0, ""))
+        self.assertEqual(notification_history.load(), [])
+
+    def test_remove_sans_fichier(self):
+        self.assertFalse(notification_history.remove(100.0, ""))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ et _construire_tray suffisent a exercer le vrai code sans passer par elles.
 import builtins
 import json
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -425,6 +426,35 @@ class HttpApiTests(unittest.TestCase):
 
         self._post("/api/clear-history", {})
         self.assertEqual(json.loads(self._get("/api/history")[1]), {"entries": []})
+
+    def test_delete_one_history_line_through_the_real_route(self):
+        with mock.patch.object(notifier.notify_backend, "notify"):
+            for numero in (1, 2, 3):
+                notifier.notify("Feed", {"title": f"T{numero}", "author": "A", "summary": "",
+                                         "link": f"https://x.test/{numero}"})
+        entries = json.loads(self._get("/api/history")[1])["entries"]
+        self.assertEqual([entry["title"] for entry in entries], ["T3", "T2", "T1"])
+        milieu = entries[1]
+
+        reponse = self._post("/api/delete-history-entry",
+                             {"timestamp": milieu["timestamp"], "link": milieu["link"]})[1]
+        self.assertEqual(reponse, {"ok": True, "removed": True})
+        self.assertEqual([entry["title"] for entry in json.loads(self._get("/api/history")[1])["entries"]],
+                         ["T3", "T1"])
+        # Deja retiree, ou charge inventee : rien ne change et la route ne plante pas.
+        for charge in ({"timestamp": milieu["timestamp"], "link": milieu["link"]}, {}, {"timestamp": "x"}):
+            reponse = self._post("/api/delete-history-entry", charge)[1]
+            self.assertEqual(reponse, {"ok": True, "removed": False})
+        self.assertEqual(len(json.loads(self._get("/api/history")[1])["entries"]), 2)
+
+    def test_the_history_page_wires_the_delete_button(self):
+        js = (notifier.GUI_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("deleteHistoryEntry: (payload) => _post('/api/delete-history-entry', payload)", js)
+        self.assertIn("api.deleteHistoryEntry({ timestamp: entry.timestamp, link: entry.link || '' })", js)
+        html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
+        history_head = html[html.index('id="history-table"'):html.index('id="history-body"')]
+        self.assertEqual(len(re.findall(r"<th[ >]", history_head)), 4)       # la colonne du bouton
+        self.assertEqual(set(notifier.i18n.STRINGS["history_delete_title"]), {"en", "fr"})
 
 
 @unittest.skipUnless(notifier._tray_disponible(), "zone de notification indisponible sur cette machine")

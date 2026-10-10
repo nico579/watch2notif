@@ -835,6 +835,10 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         notification_history.clear()
         return {"ok": True}
 
+    def _api_delete_history_entry(payload: dict) -> dict:
+        removed = notification_history.remove(payload.get("timestamp"), str(payload.get("link") or ""))
+        return {"ok": True, "removed": removed}
+
     def _api_validate_config(payload: dict) -> dict:
         try:
             return {"ok": True, "config": config_transfer.portable_config(payload)}
@@ -917,6 +921,7 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
         "pair-allow": _api_pair_allow,
         "set-pause": _api_set_pause,
         "clear-history": _api_clear_history,
+        "delete-history-entry": _api_delete_history_entry,
         **routes_maj_post,
         **routes_demarrage_post,
         **routes_langue_post,
