@@ -72,7 +72,8 @@
     <string name="live_cycle_result">Last source checks: %1$d successful · %2$d failed</string>
     <string name="empty_history">All caught up</string>
     <string name="empty_history_body">New notifications will appear here. The first check quietly records items already present in your sources.</string>
-    <string name="history_note">The 200 most recent notifications. Tap an item to open its link.</string>
+    <string name="history_note">The 200 most recent notifications. Tap an item to open its link, or remove a single line with its button.</string>
+    <string name="remove_history_line">Remove this line</string>
     <string name="clear_history">Clear history</string>
     <string name="clear_history_question">Clear notification history? Monitoring state is kept.</string>
     <string name="no_link">This item has no web link.</string>

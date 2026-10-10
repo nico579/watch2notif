@@ -151,8 +151,12 @@ STRINGS = {
         "fr": "watch2notif - historique des notifications",
     },
     "history_hint_text": {
-        "en": "Click a title to open its link.",
-        "fr": "Cliquez sur un titre pour ouvrir son lien.",
+        "en": "Click a title to open its link, × to remove a line from the history.",
+        "fr": "Cliquez sur un titre pour ouvrir son lien, sur × pour retirer une ligne de l'historique.",
+    },
+    "history_delete_title": {
+        "en": "Remove this line from the history",
+        "fr": "Retirer cette ligne de l'historique",
     },
     "history_header_date": {"en": "Date", "fr": "Date"},
     "history_header_source": {"en": "Source", "fr": "Source"},

@@ -55,7 +55,8 @@ use a common provider interface and registry on each platform.
 - `gui/` + `nico579_commons.serveweb`: settings/history page (add/remove sources,
   pick their type, set per-source polling interval between 5 seconds and
   a week, toggle autostart in the Settings panel, browse the last 200
-  notifications actually sent and click a title to reopen its link)
+  notifications actually sent, click a title to reopen its link, remove a
+  single line with its ×)
   served on local HTTP (stdlib `http.server`, no
   framework) and opened in the system's default browser — same
   architecture as the sibling projects, lidar2map and blink2video.

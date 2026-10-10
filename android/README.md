@@ -156,7 +156,7 @@ chaque plateforme.
   entrées qui réapparaissent. Les 4000 identifiants les plus récents sont conservés
   par source ; un flux sans dates qui republie davantage d’anciens identifiants
   peut donc entraîner des notifications répétées.
-- Notifications natives cliquables et historique des 200 dernières notifications.
+- Notifications natives cliquables et historique des 200 dernières notifications, dont chaque ligne peut être retirée seule.
 - Réglages et notifications en français ou anglais, selon l’appareil ou au choix.
 
 **Automatique** : WorkManager planifie une vérification toutes les 15 minutes,

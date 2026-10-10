@@ -64,3 +64,29 @@ def append(feed_label: str, title: str, author: str, summary: str, link: str) ->
 def clear() -> None:
     with _lock:
         _save([])
+
+
+def remove(timestamp, link: str) -> bool:
+    """Retire une ligne de l'historique. Vrai si elle y etait.
+
+    La ligne est reperee par son horodatage et son lien, pas par sa position :
+    le poll peut avoir insere une nouvelle notification en tete entre
+    l'affichage de la page et le clic, ce qui decalerait tous les rangs. Une
+    seule ligne part, meme si deux partagent le meme lien (une notification
+    renvoyee). Meme verrou que append() et clear()."""
+    try:
+        cible = float(timestamp)
+    except (TypeError, ValueError):
+        return False
+    with _lock:
+        entries = atomique.lire_json(HISTORY_FILE, [])
+        if not isinstance(entries, list):
+            return False
+        for index, ligne in enumerate(entries):
+            if (isinstance(ligne, dict) and ligne.get("link", "") == (link or "")
+                    and isinstance(ligne.get("timestamp"), (int, float))
+                    and abs(ligne["timestamp"] - cible) < 1e-6):
+                del entries[index]
+                _save(entries)
+                return True
+    return False
