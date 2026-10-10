@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -212,6 +213,49 @@ class PollStateTests(unittest.TestCase):
             {"version": 2, "seen_ids": [], "pending_ids": [], "newest_timestamp": future}
         )
         self.assertEqual(notifier.load_feed_state("feed").newest_timestamp, future)
+
+
+class _StopLoop(Exception):
+    pass
+
+
+class PollLoopTests(unittest.TestCase):
+    """poll_loop runs forever: time.sleep raises after a few cycles to end it."""
+
+    def run_loop(self, config, cycles=3):
+        calls = {"sleep": 0}
+
+        def sleep(_seconds):
+            calls["sleep"] += 1
+            if calls["sleep"] >= cycles:
+                raise _StopLoop
+
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(notifier, "STATE_DIR", Path(directory) / "state"), \
+                mock.patch.object(notifier, "load_config", return_value=config), \
+                mock.patch.object(notifier.VERIFICATEUR, "disponible", return_value=None), \
+                mock.patch.object(notifier.time, "sleep", side_effect=sleep), \
+                mock.patch.object(notifier, "poll_feed") as poll, \
+                mock.patch("builtins.print") as printed:
+            with self.assertRaises(_StopLoop):
+                notifier.poll_loop(notifier.SharedState(threading.Event()))
+        return poll, [" ".join(map(str, call.args)) for call in printed.call_args_list]
+
+    def test_no_active_source_is_logged_once_not_every_cycle(self):
+        # Every 5 s, forever: about 17,000 lines a day in a log never purged.
+        _poll, lines = self.run_loop({"feeds": [], "lang": "en"}, cycles=4)
+        self.assertEqual(sum("aucune source active" in line for line in lines), 1)
+
+    def test_hand_edited_source_without_keys_does_not_stop_the_others(self):
+        good = {"key": "good", "label": "Good", "url": "https://example.test/feed",
+                "enabled": True, "kind": "rss"}
+        config = {"feeds": [{"label": "No enabled", "url": "https://example.test/a", "key": "a"},
+                            {"label": "No key", "url": "https://example.test/b", "enabled": True},
+                            "not a dict", good],
+                  "lang": "en"}
+        poll, lines = self.run_loop(config, cycles=1)
+        poll.assert_called_once_with(good)
+        self.assertFalse([line for line in lines if "erreur dans le cycle" in line], lines)
 
 
 if __name__ == "__main__":

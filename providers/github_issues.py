@@ -52,7 +52,7 @@ def fetch_entries(repo: str) -> list:
             # ne joue que si la cle est absente), pas {} - d'ou le `or {}`.
             author=(item.get("user") or {}).get("login", "?"),
             link=item.get("html_url", ""),
-            summary=body[:150],
+            summary=body,
             created=item.get("created_at", ""),
         ))
     return entries

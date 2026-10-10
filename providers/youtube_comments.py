@@ -97,6 +97,6 @@ def _to_entry(comment: dict, video_id: str, video_title: str) -> Entry:
         author=snippet.get("authorDisplayName", "?"),
         # &lc=<id> fait defiler YouTube jusqu'au commentaire vise.
         link=f"https://www.youtube.com/watch?v={video_id}&lc={comment['id']}",
-        summary=body[:150],
+        summary=body,
         created=snippet.get("publishedAt", ""),
     )

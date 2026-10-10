@@ -46,6 +46,19 @@ class DiscussionGitHub(unittest.TestCase):
         self.assertEqual([e.id for e in entrees], ["1"])
 
 
+class TexteEntier(unittest.TestCase):
+    def test_le_filtre_ia_recoit_tout_le_texte(self):
+        # notify() coupe pour l'affichage ; le filtre IA en lit jusqu'a TEXTE_MAX.
+        long = "mot " * 200
+        commentaire = {"id": "Ugx", "snippet": {"textOriginal": long, "authorDisplayName": "a",
+                                                "publishedAt": "2026-10-01T00:00:00Z"}}
+        noeud = {"id": "C1", "databaseId": 1, "url": "u", "bodyText": long,
+                 "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "a"}}
+        for entree in (youtube_comments._to_entry(commentaire, "6rNqLI9K8Tc", "Video"),
+                       github_discussion._to_entry(noeud, "Fil")):
+            self.assertEqual(entree.get("summary"), long.strip())
+
+
 class VideoYouTube(unittest.TestCase):
     def test_toute_url_acceptee_a_l_import_est_comprise(self):
         for url in ("https://www.youtube.com/watch?v=6rNqLI9K8Tc",

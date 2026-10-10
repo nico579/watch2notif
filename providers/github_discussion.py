@@ -118,6 +118,6 @@ def _to_entry(node: dict, discussion_title: str) -> Entry:
         title=discussion_title,
         author=(node.get("author") or {}).get("login", "?"),
         link=node.get("url", ""),
-        summary=body[:150],
+        summary=body,
         created=node.get("createdAt", ""),
     )

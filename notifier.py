@@ -595,6 +595,7 @@ def poll_loop(state: SharedState) -> None:
 
     next_due: dict = {}
     notified_version = None
+    aucune_source_signalee = False
 
     while True:
         # Try/except large et non specifique : un config.json corrompu par
@@ -614,10 +615,17 @@ def poll_loop(state: SharedState) -> None:
             # precoce sautait aussi le bloc plus bas, jamais rejoue tant que
             # la pause dure, potentiellement des semaines).
             if not state.pause_event.is_set():
-                active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
+                # .get : une source ecrite a la main sans "enabled" ou sans
+                # "key" levait KeyError ici, et aucune autre source n'etait
+                # plus surveillee.
+                active_feeds = [f for f in config.get("feeds") or []
+                                if isinstance(f, dict) and f.get("enabled") and f.get("url") and f.get("key")]
 
-                if not active_feeds:
+                # Dit une fois, pas a chaque tour de 5 s : sans source active,
+                # le journal (jamais purge) prenait 17 000 lignes par jour.
+                if not active_feeds and not aucune_source_signalee:
                     print("aucune source active dans config.json (ouvre les reglages depuis le tray).")
+                aucune_source_signalee = not active_feeds
 
                 now = time.time()
                 for feed in active_feeds:
@@ -628,7 +636,7 @@ def poll_loop(state: SharedState) -> None:
                     try:
                         poll_feed(feed)
                     except Exception as exc:
-                        print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
+                        print(f"[{feed.get('label', key)}] erreur, on reessaie au prochain cycle: {exc}")
                     next_due[key] = now + interval
 
             info = VERIFICATEUR.disponible()
