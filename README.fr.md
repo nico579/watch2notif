@@ -59,7 +59,8 @@ de provider commune et un registre sur chaque plateforme.
   ou retirer des sources, choisir leur type, régler leur intervalle entre
   5 secondes et une semaine, activer le démarrage automatique dans le
   panneau Réglages, parcourir les 200 dernières notifications envoyées et
-  cliquer un titre pour rouvrir son lien), servie en HTTP local (stdlib
+  cliquer un titre pour rouvrir son lien, retirer une seule ligne avec son
+  ×), servie en HTTP local (stdlib
   `http.server`, aucun framework) et ouverte dans le navigateur par défaut,
   même architecture que les projets jumeaux lidar2map et blink2video.
   Bilingue FR/EN : français quand la langue d’affichage du système est le

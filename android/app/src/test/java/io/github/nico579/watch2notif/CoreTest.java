@@ -61,6 +61,30 @@ public class CoreTest {
         assertTrue(new Store(context).state(feed).pending.isEmpty()); assertEquals(1, reopened.history().length());
     }
 
+    @Test public void removingOneHistoryLineKeepsTheOthersAndSurvivesARestart() throws Exception {
+        for (String id : new String[]{"a", "b", "c"}) store.delivered(feed, store.state(feed), entry(id, 0));
+        // Newest first: c, b, a. The screen drew this list; then a fourth line lands on top before the tap.
+        org.json.JSONObject middle = store.history().getJSONObject(1);
+        assertEquals("b", middle.getString("title"));
+        store.delivered(feed, store.state(feed), entry("d", 0));
+        assertTrue(store.removeHistory(middle));
+        assertFalse(store.removeHistory(middle)); // already gone: nothing else is removed
+        org.json.JSONArray rows = new Store(context).history();
+        assertEquals(3, rows.length());
+        assertEquals("d", rows.getJSONObject(0).getString("title")); assertEquals("c", rows.getJSONObject(1).getString("title"));
+        assertEquals("a", rows.getJSONObject(2).getString("title"));
+    }
+
+    @Test public void historyLinesWithoutAnIdAreRemovedByTimestampAndLink() throws Exception {
+        store.delivered(feed, store.state(feed), entry("x", 0));
+        org.json.JSONObject row = store.history().getJSONObject(0);
+        row.remove("id"); // as written by an older version
+        assertFalse("a line that does have an id must not match by timestamp", store.removeHistory(row));
+        assertEquals(1, store.history().length());
+        org.json.JSONObject legacy = new org.json.JSONObject().put("timestamp", 5.5).put("link", "https://old.example/1").put("title", "old");
+        assertFalse(store.removeHistory(legacy)); // absent
+    }
+
     @Test public void ruleChangeKeepsSeenIdsButAddressChangeReseeds() throws Exception {
         PollState state = store.state(feed); state.merge(List.of(entry("base", 0)), 1000); store.state(feed, state);
         Feed filtered = new Feed(feed.key, feed.label, feed.kind, feed.url, 60, true, "Questions only"); store.putFeed(filtered);

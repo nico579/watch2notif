@@ -172,6 +172,29 @@ final class Store {
         try { save(copy().put("history", new JSONArray())); } catch (JSONException failure) { throw new IOException(failure); }
     }
 
+    /**
+     * Removes one history line and returns whether it was there. The line is found by its stable id (the hash
+     * of the source and the entry), never by its position: a notification can be added at the top between
+     * drawing the screen and the tap. Lines written before ids existed are matched by timestamp and link.
+     */
+    synchronized boolean removeHistory(JSONObject target) throws IOException {
+        try {
+            String id = target.optString("id");
+            JSONObject updated = copy();
+            JSONArray rows = updated.getJSONArray("history"), kept = new JSONArray();
+            boolean removed = false;
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject row = rows.getJSONObject(i);
+                boolean same = !id.isEmpty() ? id.equals(row.optString("id"))
+                        : !row.has("id") && row.optDouble("timestamp") == target.optDouble("timestamp")
+                                && row.optString("link").equals(target.optString("link"));
+                if (!removed && same) removed = true; else kept.put(row);
+            }
+            if (removed) save(updated.put("history", kept));
+            return removed;
+        } catch (JSONException failure) { throw new IOException(failure); }
+    }
+
     synchronized JSONObject exportConfig() throws JSONException {
         JSONArray rows = new JSONArray();
         for (Feed feed : feeds()) rows.put(feed.json());

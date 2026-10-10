@@ -69,7 +69,8 @@
     <string name="live_cycle_result">Derniers accès aux sources : %1$d réussis · %2$d échoués</string>
     <string name="empty_history">Vous êtes à jour</string>
     <string name="empty_history_body">Les nouvelles notifications apparaîtront ici. La première vérification mémorise discrètement les entrées déjà présentes dans vos sources.</string>
-    <string name="history_note">Les 200 dernières notifications. Touchez une entrée pour ouvrir son lien.</string>
+    <string name="history_note">Les 200 dernières notifications. Touchez une entrée pour ouvrir son lien, ou retirez une seule ligne avec son bouton.</string>
+    <string name="remove_history_line">Retirer cette ligne</string>
     <string name="clear_history">Vider l’historique</string>
     <string name="clear_history_question">Vider l’historique des notifications ? L’état de surveillance sera conservé.</string>
     <string name="no_link">Cette entrée n’a pas de lien web.</string>

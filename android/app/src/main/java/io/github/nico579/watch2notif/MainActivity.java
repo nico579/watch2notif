@@ -420,6 +420,9 @@ public final class MainActivity extends Activity {
             card.addView(heading(str(item, "title", getString(R.string.untitled)), 17), space(6));
             card.addView(text(str(item, "author", "") + " · " + compact(str(item, "summary", ""), 400), 14, R.color.muted), space(6));
             card.setOnClickListener(view -> openLink(str(item, "link", ""))); card.setFocusable(true);
+            addButton(card, R.string.remove_history_line, false, view -> {
+                try { store.removeHistory(item); render(); } catch (Exception failure) { toast(R.string.error_storage); }
+            });
         }
     }
 
