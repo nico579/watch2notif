@@ -63,6 +63,10 @@ BACKFILL_GRACE_SECONDS = 5 * 60
 MIN_INTERVAL_SECONDS = 5
 MAX_INTERVAL_SECONDS = 7 * 24 * 3600
 MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
+# Identifiants "deja vus" gardes par source, comme MAX_SEEN sur Android : sans
+# borne, state/<cle>.json grossissait sans fin et etait reecrit en entier a
+# chaque notification.
+MAX_SEEN_IDS = 4000
 
 # Port fixe (pas de recherche de plage comme lidar2map) : single_instance.py
 # interdit deja tout doublon, jamais deux serveurs a demarrer en parallele.
@@ -227,7 +231,10 @@ def state_file(feed_key: str) -> Path:
 
 @dataclass
 class FeedState:
-    seen_ids: set[str] = field(default_factory=set)
+    # Ensemble ordonne (dict sans valeurs, l'idiome Python de l'ordered set) :
+    # l'ordre d'insertion dit lesquels sont les plus anciens quand MAX_SEEN_IDS
+    # oblige a en oublier, comme le LinkedHashSet d'Android.
+    seen_ids: dict[str, None] = field(default_factory=dict)
     pending_ids: set[str] = field(default_factory=set)
     newest_timestamp: float | None = None
     source_fingerprint: str | None = None
@@ -254,7 +261,7 @@ def load_feed_state(feed_key: str) -> FeedState:
         return FeedState()
     if isinstance(raw, list):
         # Migration transparente des versions <= 0.1.1.
-        return FeedState(seen_ids={str(value) for value in raw if value}, legacy=True)
+        return FeedState(seen_ids=dict.fromkeys(str(value) for value in raw if value), legacy=True)
     if not isinstance(raw, dict):
         raise ValueError(f"format d'etat invalide pour {feed_key}")
     seen = raw.get("seen_ids") or []
@@ -263,10 +270,14 @@ def load_feed_state(feed_key: str) -> FeedState:
     pending = raw.get("pending_ids") or []
     if not isinstance(pending, list):
         raise ValueError(f"pending_ids invalide pour {feed_key}")
-    seen_ids = {str(value) for value in seen if value}
+    # Ordre du fichier = ordre d'insertion. Les fichiers ecrits jusqu'a la
+    # 0.11.5 etaient tries par ordre alphabetique : leur premier elagage oublie
+    # des identifiants d'age quelconque, jamais un que la source montre encore
+    # (_forget_oldest_seen).
+    seen_ids = dict.fromkeys(str(value) for value in seen if value)
     return FeedState(
         seen_ids=seen_ids,
-        pending_ids={str(value) for value in pending if value} - seen_ids,
+        pending_ids={str(value) for value in pending if value and str(value) not in seen_ids},
         # Un recul de l'horloge locale ne doit pas effacer un watermark deja
         # valide. La garde "date trop future" ne concerne que les donnees
         # nouvellement fournies par un flux potentiellement mal forme.
@@ -280,8 +291,8 @@ def save_feed_state(feed_key: str, state: FeedState) -> None:
         state_file(feed_key),
         {
             "version": STATE_SCHEMA_VERSION,
-            "seen_ids": sorted(state.seen_ids),
-            "pending_ids": sorted(state.pending_ids - state.seen_ids),
+            "seen_ids": list(state.seen_ids),
+            "pending_ids": sorted(entry_id for entry_id in state.pending_ids if entry_id not in state.seen_ids),
             "newest_timestamp": state.newest_timestamp,
             # Empreinte seulement : une URL RSS privee ne doit jamais etre
             # recopiee en clair dans les fichiers d'etat.
@@ -292,13 +303,13 @@ def save_feed_state(feed_key: str, state: FeedState) -> None:
 
 def load_seen_ids(feed_key: str) -> set[str]:
     """Compatibilite pour les appels/tests existants."""
-    return load_feed_state(feed_key).seen_ids
+    return set(load_feed_state(feed_key).seen_ids)
 
 
 def save_seen_ids(feed_key: str, seen_ids: set[str]) -> None:
     """Compatibilite : conserve le repere temporel s'il existe deja."""
     state = load_feed_state(feed_key) if state_file(feed_key).exists() else FeedState()
-    state.seen_ids = set(seen_ids)
+    state.seen_ids = dict.fromkeys(seen_ids)
     state.pending_ids.difference_update(state.seen_ids)
     state.legacy = False
     save_feed_state(feed_key, state)
@@ -411,6 +422,27 @@ def _entry_timestamp(entry) -> float | None:
     return None
 
 
+def _forget_oldest_seen(state: FeedState, visible: set) -> bool:
+    """Ramene seen_ids a MAX_SEEN_IDS en oubliant les plus anciens, jamais un
+    identifiant que la source montre encore (visible) : il repasserait pour
+    nouveau au cycle suivant. Un identifiant oublie qui revient plus tard est
+    absorbe sans notification par le repere temporel s'il est date, et
+    renotifie s'il ne l'est pas, la meme limite que sur Android. Vrai si
+    quelque chose a ete oublie."""
+    excess = len(state.seen_ids) - MAX_SEEN_IDS
+    if excess <= 0:
+        return False
+    oublies = []
+    for entry_id in state.seen_ids:
+        if len(oublies) == excess:
+            break
+        if entry_id not in visible:
+            oublies.append(entry_id)
+    for entry_id in oublies:
+        del state.seen_ids[entry_id]
+    return bool(oublies)
+
+
 def poll_feed(feed: dict) -> None:
     key, label = feed["key"], feed["label"]
     first_run = not state_file(key).exists()
@@ -441,7 +473,7 @@ def poll_feed(feed: dict) -> None:
     current_newest = max(timestamps, default=None)
 
     if first_run or source_changed:
-        state.seen_ids.update(entry_id for _entry, entry_id, _timestamp in records)
+        state.seen_ids.update(dict.fromkeys(entry_id for _entry, entry_id, _timestamp in records))
         state.newest_timestamp = current_newest
         state.legacy = False
         save_feed_state(key, state)
@@ -493,7 +525,7 @@ def poll_feed(feed: dict) -> None:
             and timestamp < baseline - BACKFILL_GRACE_SECONDS
         )
         if is_old_backfill:
-            state.seen_ids.add(entry_id)
+            state.seen_ids[entry_id] = None
             state.pending_ids.discard(entry_id)
             backfilled += 1
             state_changed = True
@@ -538,7 +570,7 @@ def poll_feed(feed: dict) -> None:
             else:
                 if not verdict.pertinent:
                     print(f"[{label}] ecartee par le filtre IA : {entry.get('title', '')!r} ({verdict.raison})")
-                    state.seen_ids.add(entry_id)
+                    state.seen_ids[entry_id] = None
                     state.pending_ids.discard(entry_id)
                     save_feed_state(key, state)
                     filtered += 1
@@ -552,7 +584,7 @@ def poll_feed(feed: dict) -> None:
         # Marquee vue seulement apres succes, et sauvee tout de suite : si une
         # notif suivante plante, celles deja envoyees ne repartent pas au
         # prochain cycle.
-        state.seen_ids.add(entry_id)
+        state.seen_ids[entry_id] = None
         state.pending_ids.discard(entry_id)
         save_feed_state(key, state)
         sent += 1
@@ -564,6 +596,8 @@ def poll_feed(feed: dict) -> None:
         if next_watermark != state.newest_timestamp:
             state.newest_timestamp = next_watermark
             save_feed_state(key, state)
+    if _forget_oldest_seen(state, ids_in_batch):
+        save_feed_state(key, state)
     if backfilled:
         print(f"[{label}] {backfilled} ancienne(s) entree(s) memorisee(s) sans notification.")
     if sent:

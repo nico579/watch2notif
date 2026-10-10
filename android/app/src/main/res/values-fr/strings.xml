@@ -113,6 +113,7 @@
     <string name="ai_filter_active">Filtre Claude activé</string>
     <string name="ai_key_missing">Clé Claude absente : les entrées seront notifiées sans tri. Ajoutez la clé dans les Réglages.</string>
     <string name="ai_unavailable">Filtre IA indisponible · notification sans tri</string>
+    <string name="error_ai_refusal">Claude a refusé de classer ce message.</string>
     <string name="ai_missing_fallback">Clé Claude absente · notification sans tri</string>
     <string name="check_filtered">%1$d entrées écartées par le filtre IA</string>
     <string name="pair_title">Recevoir depuis le PC</string>

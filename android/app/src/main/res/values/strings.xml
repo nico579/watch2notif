@@ -117,6 +117,7 @@
     <string name="ai_filter_active">Claude filter enabled</string>
     <string name="ai_key_missing">Claude key missing: items will be notified without filtering. Add the key in Settings.</string>
     <string name="ai_unavailable">AI filter unavailable · notified without filtering</string>
+    <string name="error_ai_refusal">Claude declined to classify this message.</string>
     <string name="ai_missing_fallback">Claude key missing · notified without filtering</string>
     <string name="check_filtered">%1$d items rejected by the AI filter</string>
     <string name="pair_title">Receive from your PC</string>

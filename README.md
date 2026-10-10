@@ -26,7 +26,10 @@ use a common provider interface and registry on each platform.
 - `notifier.py`: background loop, polls the sources enabled in
   `config.json`, each on its own interval, fires a desktop notification
   for each new entry. Per-source
-  "already seen" state kept in `state/`. `config.json`, `state/` and the
+  "already seen" state kept in `state/`: the 4,000 most recent IDs, plus
+  any the source still shows; a dated entry that comes back after being
+  forgotten is recognised as old and not notified again, as on Android.
+  `config.json`, `state/` and the
   notification history live in the OS's standard per-user data directory
   (`%APPDATA%` on Windows, XDG data dir on Linux, Application Support on
   Mac, via `platformdirs`, see `data_paths.py`), never next to the
@@ -56,7 +59,8 @@ use a common provider interface and registry on each platform.
   served on local HTTP (stdlib `http.server`, no
   framework) and opened in the system's default browser — same
   architecture as the sibling projects, lidar2map and blink2video.
-  Bilingual FR/EN, toggle top-right. Reachable from the tray's "Open"
+  Bilingual FR/EN: French when the system's display language is French,
+  English otherwise, toggle top-right. Reachable from the tray's "Open"
   item, or with `notifier.py --settings`.
 - `notify_backend.py`: notification backend per OS — `win11toast`
   (Windows, modern WinRT toast, correct app name, clickable), `pync`
@@ -332,7 +336,7 @@ source’s **AI filter** field. Describe, in plain words, which entries deserve
 a notification, for example: "Questions from people who want to keep or download their Blink
 clips without a subscription. Not billing complaints, not motion detection
 problems." Before notifying a new entry, watch2notif sends its title and
-text to Claude Haiku 4.5 with your instructions, and only notifies the ones it
+text to Claude Haiku 5.5 with your instructions, and only notifies the ones it
 judges relevant, with a one-line reason at the start of the notification.
 The others are remembered as seen and never sent again. An empty box means
 no filtering.
@@ -341,7 +345,9 @@ It needs an Anthropic API key in the `ANTHROPIC_API_KEY` environment
 variable on desktop, or the Claude key in Android settings
 ([Anthropic Console](https://console.anthropic.com)). The API is billed per
 use, separately from any Claude subscription; cost depends on message volume
-and length. If the key is missing or the API cannot answer,
+and length (a typical message used about 400 input and 60-90 output tokens,
+under a hundredth of a cent at October 2026 prices). If the key is missing,
+the API cannot answer or the model declines to classify a message,
 watch2notif notifies anyway and says so in the notification: an entry is
 never dropped silently.
 

@@ -21,6 +21,7 @@ final class SourceException extends Exception {
             case "github_token": return R.string.error_github_token;
             case "youtube_key": return R.string.error_youtube_key;
             case "claude_key": return R.string.ai_key_missing;
+            case "refusal": return R.string.error_ai_refusal;
             case "timeout": return R.string.smoke_timeout;
             case "graphql": return R.string.error_graphql;
             case "not_found": return R.string.error_not_found;

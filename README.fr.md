@@ -27,7 +27,10 @@ de provider commune et un registre sur chaque plateforme.
 - `notifier.py` : boucle de fond qui interroge les sources activées dans
   `config.json`, chacune à son propre intervalle, et affiche une
   notification pour chaque nouvelle entrée. L’état « déjà vu » de chaque
-  source est gardé dans `state/`. `config.json`, `state/` et l’historique
+  source est gardé dans `state/` : les 4 000 identifiants les plus récents,
+  plus ceux que la source affiche encore ; une entrée datée qui revient
+  après avoir été oubliée est reconnue comme ancienne et n’est pas notifiée
+  de nouveau, comme sur Android. `config.json`, `state/` et l’historique
   des notifications vivent dans le dossier de données standard du système
   (`%APPDATA%` sous Windows, dossier XDG sous Linux, Application Support
   sous macOS, via `platformdirs`, voir `data_paths.py`), jamais à côté de
@@ -59,7 +62,8 @@ de provider commune et un registre sur chaque plateforme.
   cliquer un titre pour rouvrir son lien), servie en HTTP local (stdlib
   `http.server`, aucun framework) et ouverte dans le navigateur par défaut,
   même architecture que les projets jumeaux lidar2map et blink2video.
-  Bilingue FR/EN, bascule en haut à droite. Accessible depuis l’entrée
+  Bilingue FR/EN : français quand la langue d’affichage du système est le
+  français, anglais sinon, bascule en haut à droite. Accessible depuis l’entrée
   Ouvrir de l’icône, ou avec `notifier.py --settings`.
 - `notify_backend.py` : notification native par système, `win11toast`
   (Windows, toast WinRT moderne, bon nom d’application, cliquable), `pync`
@@ -359,7 +363,7 @@ qui méritent une notification, par exemple : « Les questions de personnes
 qui veulent garder ou télécharger leurs clips Blink sans abonnement. Pas
 les plaintes de facturation, pas les problèmes de détection de
 mouvement. » Avant de notifier une nouvelle entrée, watch2notif envoie son
-titre et son texte à Claude Haiku 4.5 avec cette consigne, et ne notifie
+titre et son texte à Claude Haiku 5.5 avec cette consigne, et ne notifie
 que celles qu’il juge pertinentes, avec en tête de la notification une
 phrase qui dit pourquoi. Les autres sont mémorisées comme vues et ne
 reviennent jamais. Une zone vide veut dire : pas de filtre.
@@ -368,9 +372,11 @@ Il faut une clé d’API Anthropic dans la variable d’environnement
 `ANTHROPIC_API_KEY` sur PC, ou dans les réglages Android pour la clé Claude
 ([console Anthropic](https://console.anthropic.com)). L’API se paie à l’usage,
 à part de tout abonnement Claude ; le coût dépend du nombre et de la longueur
-des messages. Si la clé manque ou que l’API ne répond pas, watch2notif
-notifie quand même et le dit dans la notification : une entrée n’est jamais
-perdue en silence.
+des messages (un message courant a consommé environ 400 tokens en entrée et
+60 à 90 en sortie, moins d’un centième de centime aux tarifs d’octobre 2026).
+Si la clé manque, que l’API ne répond pas ou que le modèle refuse de classer
+un message, watch2notif notifie quand même et le dit dans la notification :
+une entrée n’est jamais perdue en silence.
 
 ## Ajouter un type de source
 
