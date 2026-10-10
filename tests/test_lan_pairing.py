@@ -4,6 +4,7 @@ import http.client
 import json
 import socket
 import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -130,6 +131,8 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(session.status()["state"], "ready")
         self.assertEqual(self.request(session, qr["code"])[0], 200)
 
+    @unittest.skipUnless(sys.platform == "win32", "the reset on unread data is Windows behaviour; on Linux "
+                                                  "the parallel clients only overflow the listen queue")
     def test_refusals_reach_a_client_that_sent_a_body(self):
         # The server used to answer 404/403/400 without reading the request body, then close: Windows resets
         # such a connection, and a client that had not yet read the answer failed with WinError 10053.
@@ -145,9 +148,10 @@ class PairingTests(unittest.TestCase):
             for _ in range(5):
                 try:
                     return expected, self.request(session, padded, **headers)[0]
-                except ConnectionRefusedError:
+                except (ConnectionRefusedError, TimeoutError):
                     # Not the bug: 16 clients overflow the listen queue (5 by default) before the connection
-                    # exists. Retried; only a connection cut after it was accepted counts.
+                    # exists (refused on Windows, a SYN left waiting for its retry on Linux). Retried; only a
+                    # connection cut after it was accepted counts, and 5 timeouts in a row still fail.
                     time.sleep(0.02)
                 except OSError as error:   # ConnectionAbortedError / ConnectionResetError
                     return expected, repr(error)
