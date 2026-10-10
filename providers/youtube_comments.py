@@ -36,7 +36,10 @@ SOURCE_HINT = "URL ou ID de la video (ex: https://www.youtube.com/watch?v=6rNqLI
 API_ROOT = "https://www.googleapis.com/youtube/v3"
 DEFAULT_INTERVAL_SECONDS = 300
 
-_VIDEO_ID_RE = re.compile(r"(?:[?&]v=|youtu\.be/|/embed/)([A-Za-z0-9_-]{11})")
+# Memes formes que config_transfer.py et Models.java (Android) : une URL
+# /shorts/ ou /live/ y etait acceptee a l'import, puis refusee ici a chaque
+# cycle.
+_VIDEO_ID_RE = re.compile(r"(?:[?&]v=|youtu\.be/|/(?:embed|shorts|live)/)([A-Za-z0-9_-]{11})(?:[?&#/]|$)")
 
 
 def _extract_video_id(source: str) -> str:

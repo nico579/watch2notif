@@ -128,6 +128,8 @@ STRINGS = {
     "autostart_error_title": {"en": "Autostart error", "fr": "Erreur autostart"},
     "ok_title": {"en": "OK", "fr": "OK"},
     "ok_msg": {"en": "Settings saved to config.json.", "fr": "Reglages sauvegardes dans config.json."},
+    "save_failed": {"en": "Settings could not be saved. Is watch2notif still running?",
+                    "fr": "Reglages non sauvegardes. watch2notif tourne-t-il toujours ?"},
     # Le menu de l'icone vient, traduit, de nico579_commons.tray. Ces cles
     # tray_* gardent leur nom d'origine mais servent la page : case de
     # pause et bandeau de mise a jour.
@@ -143,8 +145,8 @@ STRINGS = {
         "fr": "watch2notif - historique des notifications",
     },
     "history_hint_text": {
-        "en": "Double-click a row to open its link.",
-        "fr": "Double-clique une ligne pour ouvrir son lien.",
+        "en": "Click a title to open its link.",
+        "fr": "Clique sur un titre pour ouvrir son lien.",
     },
     "history_header_date": {"en": "Date", "fr": "Date"},
     "history_header_source": {"en": "Source", "fr": "Source"},

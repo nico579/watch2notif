@@ -24,12 +24,16 @@ DEFAULT_INTERVAL_SECONDS = 300
 
 _SOURCE_RE = re.compile(r"^([^/]+)/([^#]+)#(\d+)$")
 
+# last, pas first : une connexion GraphQL est triee du plus ancien au plus
+# recent, et first: 100 rendait les 100 premiers commentaires d'un fil.
+# Passe ce cap, un nouveau commentaire n'apparaissait jamais (meme choix
+# que GithubDiscussionProvider.java, qui demandait deja last: 100).
 _QUERY = """
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     discussion(number: $number) {
       title
-      comments(first: 100) {
+      comments(last: 100) {
         nodes {
           id
           databaseId
@@ -37,7 +41,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
           bodyText
           createdAt
           author { login }
-          replies(first: 100) {
+          replies(last: 100) {
             nodes {
               id
               databaseId

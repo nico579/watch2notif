@@ -156,6 +156,19 @@ class BranchementDansLaBoucle(unittest.TestCase):
         self.assertIn("filtre IA indisponible", envoi.call_args.args[2])
         self.assertIn("ANTHROPIC_API_KEY", envoi.call_args.args[2])
 
+    def test_une_panne_n_est_essayee_qu_une_fois_par_cycle(self):
+        # Reseau coupe : chaque appel couterait DELAI_S. La premiere panne suffit,
+        # les entrees suivantes sont notifiees avec la meme raison sans rappeler l'API.
+        def juger(consigne, entree):
+            raise filtre_ia.FiltreIndisponible("delai depasse")
+
+        entrees = [Entree(f"e{i}", timestamp=self.now - 10 - i) for i in range(3)]
+        envoi, filtre = self.poll(entrees, juger)
+        self.assertEqual(filtre.call_count, 1)
+        self.assertEqual(len(envoi.call_args_list), 3)
+        for appel in envoi.call_args_list:
+            self.assertIn("delai depasse", appel.args[2])
+
     def test_sans_consigne_le_filtre_n_est_pas_appele(self):
         self.feed["filtre_ia"] = "  "
         envoi, filtre = self.poll([Entree("e", timestamp=self.now - 10)], lambda *a: None)
@@ -185,6 +198,27 @@ class ConfigurationEtNotification(unittest.TestCase):
                 mock.patch.object(notifier.notification_history, "append"):
             notifier.notify("Reddit", Entree(summary="Bonjour"), "veut garder ses clips")
         self.assertIn("veut garder ses clips | Bonjour", backend.call_args.kwargs["message"])
+
+    def test_seul_un_lien_http_est_confie_au_clic(self):
+        # Le lien vient tel quel du flux ; le clic le donne au systeme.
+        for lien, attendu in (("https://example.test/a", "https://example.test/a"),
+                              ("HTTP://example.test/b", "HTTP://example.test/b"),
+                              ("file:///C:/Windows/System32/calc.exe", ""),
+                              ("ms-settings:", ""), ("javascript:alert(1)", ""), ("", "")):
+            with self.subTest(lien=lien), \
+                    mock.patch.object(notifier.notify_backend, "notify") as backend, \
+                    mock.patch.object(notifier.notification_history, "append") as historique:
+                entree = Entree()
+                entree._data["link"] = lien
+                notifier.notify("Flux", entree)
+            self.assertEqual(backend.call_args.kwargs["url"], attendu)
+            self.assertEqual(historique.call_args.args[4], lien)   # l'historique garde l'original
+
+    def test_l_intervalle_est_borne(self):
+        lignes = [{"label": str(valeur), "url": "https://example.test/feed", "kind": "rss",
+                   "interval_seconds": valeur} for valeur in (-60, 1, 5, 600, 10**9)]
+        intervalles = [flux["interval_seconds"] for flux in notifier.build_feeds_from_rows(lignes)]
+        self.assertEqual(intervalles, [5, 5, 5, 600, 7 * 24 * 3600])
 
 
 class CleAbsenteSignalee(unittest.TestCase):
