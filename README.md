@@ -50,9 +50,10 @@ use a common provider interface and registry on each platform.
   `fetch_entries(source) -> list[Entry]`. Adding a new source type means
   adding a module here and registering it in `providers/__init__.py`.
 - `gui/` + `nico579_commons.serveweb`: settings/history page (add/remove sources,
-  pick their type, set per-source polling interval, toggle autostart,
-  browse the last 200 notifications actually sent, double-click a row to
-  reopen its link) served on local HTTP (stdlib `http.server`, no
+  pick their type, set per-source polling interval between 5 seconds and
+  a week, toggle autostart in the Settings panel, browse the last 200
+  notifications actually sent and click a title to reopen its link)
+  served on local HTTP (stdlib `http.server`, no
   framework) and opened in the system's default browser — same
   architecture as the sibling projects, lidar2map and blink2video.
   Bilingual FR/EN, toggle top-right. Reachable from the tray's "Open"
@@ -70,10 +71,18 @@ use a common provider interface and registry on each platform.
 
 ### From source
 
+Python 3.12 is the version tested by CI, and `requirements.txt` pins every
+dependency with its hash for it. A virtual environment keeps them apart
+from the rest of your system:
+
 ```bash
-pip install -r requirements.txt
-python notifier.py   # first run opens the settings page in your browser
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt          # Windows: .venv\Scripts\pip
+.venv/bin/python notifier.py   # first run opens the settings page in your browser
 ```
+
+Useful flags: `--settings` opens the page of the running instance (or
+starts one), `--no-tray` runs without a tray icon (Ctrl+C to stop).
 
 ### Standalone binary
 
@@ -91,6 +100,29 @@ validates the whole new bundle first; watch2notif closes only when the
 external updater is ready, then restarts on the new version. If
 preparation, replacement, or restart fails, the current installation is
 kept or restored. Unsupported platforms fall back to the release page.
+
+### API keys on desktop
+
+Some sources need a key: `GITHUB_TOKEN` (required for discussions and
+Sponsors, optional for issues), `YOUTUBE_API_KEY` and, for the AI filter,
+`ANTHROPIC_API_KEY`. On desktop they are read from environment variables
+and never written to `config.json`, so a config export or a screenshot of
+the page cannot leak them. The sections below explain how to get each one.
+
+watch2notif reads these variables once, when it starts. After setting one,
+use **Restart** in the tray menu, otherwise the running instance keeps
+working without it.
+
+- **Windows**: `setx GITHUB_TOKEN "ghp_..."` in a terminal (or System
+  Properties, Environment Variables). `setx` only affects programs started
+  afterwards, including the autostart shortcut.
+- **Linux**: autostart runs watch2notif as a systemd user service, which
+  does not read `~/.bashrc` or `~/.profile`. Put the variables in
+  `~/.config/environment.d/watch2notif.conf` (one `NAME=value` per line),
+  then log out and back in.
+- **macOS**: autostart goes through a launchd agent, which does not read
+  your shell profile either. `launchctl setenv GITHUB_TOKEN ghp_...` makes a
+  variable visible to apps started afterwards, until the next reboot.
 
 ### Android app
 
@@ -141,7 +173,7 @@ separately, and source cards show their last successful access.
 
 You can also enter GitHub, YouTube and Claude keys directly in **Settings →
 API credentials**, then save them. On desktop, use the corresponding environment
-variables described below. The QR transfer imports those desktop credentials
+variables described in [API keys on desktop](#api-keys-on-desktop). The QR transfer imports those desktop credentials
 into the phone’s encrypted storage.
 
 ### Transfer desktop settings to Android
@@ -251,7 +283,8 @@ minutes) to stay under the unauthenticated limit.
 
 Enter `owner/repo#number` as the source (the number after `/discussions/`
 in the URL). Watches one Discussion thread and reports new top-level
-comments and replies. Unlike GitHub issues, Discussions have no REST
+comments and replies, among the 100 most recent comments and the 100 most
+recent replies to each. Unlike GitHub issues, Discussions have no REST
 endpoint at all: this goes through GitHub's GraphQL API instead, which
 refuses anonymous requests even on a public repo. The `GITHUB_TOKEN`
 credential is therefore required, not just a rate-limit
@@ -271,7 +304,8 @@ default interval is longer.
 
 ### YouTube comments
 
-Enter a video URL (any common form) or a bare video ID as the source.
+Enter a video URL (`watch?v=`, `youtu.be/`, `/embed/`, `/shorts/` or
+`/live/`) or a bare 11-character video ID as the source.
 Watches one video and reports new top-level comments and their visible
 replies. YouTube exposes an Atom feed for a channel's new uploads, but
 none for comments on a video, so this goes through the YouTube Data API
@@ -322,18 +356,25 @@ A provider is a module in `providers/` exposing two things:
   `notifier.py` relies on to detect new entries and pull `title`,
   `author`, `link`, `summary`.
 
-`SOURCE_HINT` is optional: placeholder text shown in the settings panel
-next to the source input field.
+Two optional constants: `DEFAULT_INTERVAL_SECONDS`, the interval the page
+proposes for a new source of this type (60 s otherwise; keep it generous
+for a rate-limited API), and `SOURCE_HINT`, an example of the expected
+source string, kept as documentation (the desktop page does not show it).
 
 If the underlying data already comes as objects with `.id`/`.get()`
 (like feedparser entries in `rss.py`), return them directly. Otherwise,
 wrap each item in `providers.base.Entry(id, title, author, link,
-summary)`, as `github_issues.py` does for GitHub's JSON API.
+summary, created)`, as `github_issues.py` does for GitHub's JSON API.
+`created` (an ISO 8601 date) is optional but useful: it lets
+`notifier.py` tell a genuinely new entry from an old one resurfacing.
 
 Then register the module in `providers/__init__.py`'s `PROVIDERS` dict
-(key = internal kind, value = the module). Nothing else changes:
-`notifier.py` and the settings page (`gui/`) pick up any registered
-provider through `PROVIDERS`, with no per-provider branching.
+(key = internal kind, value = the module). `notifier.py` and the settings
+page (`gui/`) pick up any registered provider through `PROVIDERS`, with no
+per-provider branching. The one other place to touch is
+`config_transfer.py`, which validates the JSON export and the QR transfer:
+add the kind to `KINDS`, its default interval and a check of its source
+format.
 
 Android follows the same design with a common Java interface, one class per
 provider and a registry in [ProviderRegistry.java](android/app/src/main/java/io/github/nico579/watch2notif/ProviderRegistry.java).

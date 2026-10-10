@@ -168,7 +168,7 @@ function createFeedRow(feed) {
   intervalInput.type = 'number';
   intervalInput.className = 'feed-interval';
   intervalInput.min = '5';
-  intervalInput.max = '86400';
+  intervalInput.max = '604800';
   intervalInput.value = feed.interval_seconds || (providers[feed.kind] || {}).default_interval_seconds || 60;
   intervalInput.addEventListener('input', () => { tr.dataset.intervalAuto = '0'; });
   tdInterval.appendChild(intervalInput);
@@ -305,13 +305,29 @@ async function saveConfig() {
     lang,
     feeds: collectFeedsFromTable(),
   };
-  const result = await api.saveConfig(payload);
+  let result;
+  try {
+    result = await api.saveConfig(payload);
+  } catch (error) {
+    result = null;
+  }
+  if (!result || !Array.isArray(result.feeds)) {
+    status.textContent = t('save_failed');
+    status.classList.add('error');
+    return;
+  }
   // Reaffecte les clefs generees cote serveur (nouvelles lignes) : sans ca,
   // un 2e Sauvegarder sans recharger la page regenererait un nouveau slug a
   // chaque fois pour ces lignes (meme piege que checkbox._feed_key en Qt).
-  const rows = Array.from(document.querySelectorAll('#feeds-body tr.feed-row'));
+  // Le serveur ignore les lignes sans nom ni URL (build_feeds_from_rows) :
+  // on les saute aussi, sinon une ligne vide decalait toutes les clefs
+  // suivantes d'un rang. L'intervalle revient borne (5 s a une semaine).
+  const rows = Array.from(document.querySelectorAll('#feeds-body tr.feed-row')).filter((tr) =>
+    tr.querySelector('.feed-name').value.trim() || tr.querySelector('.feed-url').value.trim());
   result.feeds.forEach((feed, index) => {
-    if (rows[index]) rows[index].dataset.key = feed.key;
+    if (!rows[index]) return;
+    rows[index].dataset.key = feed.key;
+    rows[index].querySelector('.feed-interval').value = feed.interval_seconds;
   });
   status.textContent = t('ok_msg');
 }

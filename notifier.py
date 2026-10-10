@@ -59,6 +59,9 @@ VERIFICATEUR = maj.Verificateur(update_check.DEPOT, update_check.VERSION,
 # entrees a la meme seconde. On ne classe silencieusement comme "remontee
 # ancienne" qu'une entree clairement anterieure au repere persiste.
 BACKFILL_GRACE_SECONDS = 5 * 60
+# Intervalle de poll d'une source, en secondes (5 s a une semaine).
+MIN_INTERVAL_SECONDS = 5
+MAX_INTERVAL_SECONDS = 7 * 24 * 3600
 MAX_FUTURE_TIMESTAMP_SECONDS = 24 * 3600
 
 # Port fixe (pas de recherche de plage comme lidar2map) : single_instance.py
@@ -200,6 +203,11 @@ def build_feeds_from_rows(rows: list, known_kinds: dict | None = None) -> list:
             interval_seconds = int(row.get("interval_seconds"))
         except (TypeError, ValueError):
             interval_seconds = getattr(PROVIDERS[kind], "DEFAULT_INTERVAL_SECONDS", 60)
+        # Memes bornes que config_transfer.portable_config et Models.java :
+        # sans elles, un intervalle negatif ou de 1 s (le min="5" du champ
+        # HTML n'empeche pas de l'enregistrer) faisait interroger la source a
+        # chaque tour de poll_loop, de quoi epuiser un quota d'API.
+        interval_seconds = min(max(interval_seconds, MIN_INTERVAL_SECONDS), MAX_INTERVAL_SECONDS)
         feeds.append({
             "key": key,
             "label": label or key,
@@ -322,6 +330,16 @@ def _truncate(text: str, max_len: int) -> str:
     return text if len(text) <= max_len else text[: max_len - 3] + "..."
 
 
+def _clickable(link) -> str:
+    """Le lien seulement s'il est http(s), sinon rien. Il vient tel quel du
+    flux, et le clic sur la notification le confie au systeme (launch du
+    toast Windows, open de terminal-notifier) : un flux compromis pourrait y
+    mettre file:, ms-settings: ou tout autre schema enregistre. Meme garde
+    que renderHistory() dans gui/app.js."""
+    link = str(link or "").strip()
+    return link if re.match(r"https?://", link, re.IGNORECASE) else ""
+
+
 def notify(feed_label: str, entry, raison: str = "") -> None:
     title = entry.get("title", "(sans titre)")
     author = entry.get("author", "?")
@@ -337,7 +355,7 @@ def notify(feed_label: str, entry, raison: str = "") -> None:
     notify_backend.notify(
         title=_truncate(full_title, TITLE_MAX_LEN),
         message=f"{author} - {body}" if body else author,
-        url=link,
+        url=_clickable(link),
     )
     notification_history.append(feed_label, title, author, body, link)
 
@@ -498,16 +516,25 @@ def poll_feed(feed: dict) -> None:
     sent = 0
     filtered = 0
     consigne = str(feed.get("filtre_ia") or "").strip()
+    # Premiere panne du filtre dans ce cycle : les entrees suivantes ne
+    # retentent pas l'API. Sans ca, reseau coupe et vingt candidats, c'etaient
+    # vingt delais de 30 s (filtre_ia.DELAI_S) pendant lesquels poll_loop ne
+    # surveillait plus aucune autre source.
+    panne_filtre = None
     for entry, entry_id, timestamp in reversed(candidates):
         raison = ""
         if consigne:
             try:
+                if panne_filtre is not None:
+                    raise panne_filtre
                 verdict = filtre_ia.juger(consigne, entry)
             except filtre_ia.FiltreIndisponible as exc:
                 # Sans verdict, on notifie quand meme en le disant : perdre une
                 # entree en silence serait pire qu'une notification de trop.
                 raison = f"(filtre IA indisponible : {exc})"
-                print(f"[{label}] filtre IA indisponible, notification sans tri : {exc}")
+                if panne_filtre is None:
+                    print(f"[{label}] filtre IA indisponible, notification sans tri : {exc}")
+                panne_filtre = exc
             else:
                 if not verdict.pertinent:
                     print(f"[{label}] ecartee par le filtre IA : {entry.get('title', '')!r} ({verdict.raison})")
@@ -568,6 +595,7 @@ def poll_loop(state: SharedState) -> None:
 
     next_due: dict = {}
     notified_version = None
+    aucune_source_signalee = False
 
     while True:
         # Try/except large et non specifique : un config.json corrompu par
@@ -587,10 +615,17 @@ def poll_loop(state: SharedState) -> None:
             # precoce sautait aussi le bloc plus bas, jamais rejoue tant que
             # la pause dure, potentiellement des semaines).
             if not state.pause_event.is_set():
-                active_feeds = [f for f in config["feeds"] if f["enabled"] and f["url"]]
+                # .get : une source ecrite a la main sans "enabled" ou sans
+                # "key" levait KeyError ici, et aucune autre source n'etait
+                # plus surveillee.
+                active_feeds = [f for f in config.get("feeds") or []
+                                if isinstance(f, dict) and f.get("enabled") and f.get("url") and f.get("key")]
 
-                if not active_feeds:
+                # Dit une fois, pas a chaque tour de 5 s : sans source active,
+                # le journal (jamais purge) prenait 17 000 lignes par jour.
+                if not active_feeds and not aucune_source_signalee:
                     print("aucune source active dans config.json (ouvre les reglages depuis le tray).")
+                aucune_source_signalee = not active_feeds
 
                 now = time.time()
                 for feed in active_feeds:
@@ -601,7 +636,7 @@ def poll_loop(state: SharedState) -> None:
                     try:
                         poll_feed(feed)
                     except Exception as exc:
-                        print(f"[{feed['label']}] erreur, on reessaie au prochain cycle: {exc}")
+                        print(f"[{feed.get('label', key)}] erreur, on reessaie au prochain cycle: {exc}")
                     next_due[key] = now + interval
 
             info = VERIFICATEUR.disponible()
