@@ -181,6 +181,20 @@ class PairingSession:
 
             def do_POST(self):
                 session.observe(request=True)
+                # The body is read before any reply, refusals included. Closing a socket that still holds
+                # unread request bytes makes Windows send a reset instead of a clean close, and a client
+                # that has not yet read our 404/403 then fails with WinError 10053 instead of seeing the
+                # status. The size is capped like the request itself; a longer body is refused unread.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    length = 0
+                body, body_unreadable = b"", False
+                if 0 < length <= 1024:
+                    try:
+                        body = self.rfile.read(length)
+                    except OSError:
+                        body_unreadable = True
                 if self.path != "/v1/config" or self.headers.get("Host") != f"{session.address}:{session.server.server_port}":
                     session.observe("wrong_endpoint")
                     self.reply(404)
@@ -191,12 +205,11 @@ class PairingSession:
                     self.reply(403)
                     return
                 try:
-                    length = int(self.headers.get("Content-Length", "0"))
-                    if not 0 < length <= 1024:
+                    if not 0 < length <= 1024 or body_unreadable:
                         session.observe("bad_request")
                         self.reply(400)
                         return
-                    request = json.loads(self.rfile.read(length))
+                    request = json.loads(body)
                     code = request.get("code", "")
                     if not isinstance(code, str) or not code.isascii():
                         session.observe("bad_code")

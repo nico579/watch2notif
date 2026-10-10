@@ -130,6 +130,47 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(session.status()["state"], "ready")
         self.assertEqual(self.request(session, qr["code"])[0], 200)
 
+    def test_refusals_reach_a_client_that_sent_a_body(self):
+        # The server used to answer 404/403/400 without reading the request body, then close: Windows resets
+        # such a connection, and a client that had not yet read the answer failed with WinError 10053.
+        # Measured on this machine: about 2 requests in 1,000 when 16 clients refuse in parallel, never when
+        # they go one at a time, so the test runs them in parallel (4,500 requests, about 6 s).
+        session, qr, _ = self.session()
+        padded = "x" * 600
+        cases = [(404, {"Host": "another-interface:1234"}), (403, {"Content-Type": "text/plain"}),
+                 (403, {"Origin": "https://evil.example"})]
+
+        def refused(number):
+            expected, headers = cases[number % len(cases)]
+            for _ in range(5):
+                try:
+                    return expected, self.request(session, padded, **headers)[0]
+                except ConnectionRefusedError:
+                    # Not the bug: 16 clients overflow the listen queue (5 by default) before the connection
+                    # exists. Retried; only a connection cut after it was accepted counts.
+                    time.sleep(0.02)
+                except OSError as error:   # ConnectionAbortedError / ConnectionResetError
+                    return expected, repr(error)
+            return expected, "listen queue stayed full"
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+            outcomes = list(pool.map(refused, range(4500)))
+        self.assertEqual([outcome for outcome in outcomes if outcome[0] != outcome[1]], [])
+        self.assertEqual(self.request(session, "é" + padded)[0], 403)      # non-ASCII code, body read in full
+        self.assertEqual(session.status()["state"], "ready")
+        self.assertEqual(self.request(session, qr["code"])[0], 200)
+
+    def test_oversized_or_missing_body_is_still_refused_with_400(self):
+        session, qr, _ = self.session()
+        self.assertEqual(self.request(session, "x" * 2000)[0], 400)       # over the 1024-byte cap, left unread
+        connection = http.client.HTTPConnection("127.0.0.1", session.server.server_port, timeout=3)
+        try:
+            connection.request("POST", "/v1/config", headers={"Content-Type": "application/json"})
+            self.assertEqual(connection.getresponse().status, 400)         # no body at all
+        finally:
+            connection.close()
+        self.assertEqual(session.status()["state"], "ready")
+
     def test_expired_session_rejects_valid_code(self):
         session, qr, _ = self.session()
         session.deadline = time.monotonic() - 1
