@@ -261,19 +261,19 @@ Don't share these URLs: they grant read access to the associated private
 content. Their availability and access are controlled by Reddit; if a feed
 stops working, check its current URL in your account’s feed settings.
 
-Forums built on SMF (Simple Machines Forum, a common PHP forum engine)
-expose a native per-topic RSS feed, no plugin needed: append
-`?action=.xml;type=rss2;topic=<id>.0` to the forum's `index.php` URL,
-where `<id>` is the numeric topic ID found in the topic's own URL
-(`index.php?topic=<id>.<offset>`). Check it before trusting it: some forums
-ignore `topic=` and return the feed of the whole board (the Locus Map forum
-does: its feed also carried posts from other topics, which were notified as
-if they were replies). Open the URL in a browser and look at the links of
-the entries; if several `topic=` numbers appear, add an **AI filter**
-instruction to the source (see below) that keeps only your thread, for
-example "Only messages of the thread titled «Re: my tool name»".
-When the feed is limited to the topic, it works as a "notify me on new
-replies to my post" watcher.
+Forums built on SMF (Simple Machines Forum, a common PHP forum engine) have
+RSS and Atom feeds, but check what they cover before trusting them. Older
+versions accept `?action=.xml;type=rss2;topic=<id>.0` appended to the
+forum's `index.php` URL (`<id>` is the number in the topic's own URL,
+`index.php?topic=<id>.<offset>`) and return only that thread. SMF 2.1 does
+not: the Locus Map forum (SMF 2.1.7) advertises only feeds of the whole board
+(`board=<n>`, in the page's `<link rel="alternate">` tags) and ignores
+`topic=`, so a post from another topic was notified as if it were a reply.
+Open the feed URL in a browser and look at the `topic=` numbers in the
+entries' links. If several appear, add an **AI filter** instruction to the
+source (see below) that keeps only your thread, for example "Only messages of
+the thread titled «Re: my tool name»", or use the forum's own "Notify"
+button on the topic, which sends an e-mail for each reply.
 
 ### GitHub issues (public repos)
 

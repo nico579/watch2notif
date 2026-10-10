@@ -283,19 +283,19 @@ dépendent de Reddit ; si un flux ne fonctionne plus, vérifier son URL
 actuelle dans les réglages des flux du compte.
 
 Les forums bâtis sur SMF (Simple Machines Forum, un moteur de forum PHP
-courant) exposent un flux RSS natif par sujet, sans plugin : ajouter
-`?action=.xml;type=rss2;topic=<id>.0` à l’URL `index.php` du forum, où
-`<id>` est l’identifiant numérique du sujet, visible dans l’URL du sujet
-lui-même (`index.php?topic=<id>.<offset>`). À vérifier avant de s’y fier :
-certains forums ignorent `topic=` et renvoient le flux de toute la rubrique
-(c’est le cas du forum Locus Map : son flux contenait aussi des messages
-d’autres sujets, notifiés comme s’ils répondaient à votre message). Ouvrez
-l’URL dans un navigateur et regardez les liens des entrées ; si plusieurs
-numéros `topic=` apparaissent, ajoutez à la source une consigne de **filtre
-IA** (voir plus bas) qui ne garde que votre fil, par exemple « Seulement
-les messages du fil intitulé « Re: nom de mon outil » ». Quand le flux est
-bien limité au sujet, c’est un « prévenez-moi des nouvelles réponses à mon
-message » tout fait.
+courant) ont des flux RSS et Atom, mais il faut vérifier ce qu’ils couvrent.
+Les anciennes versions acceptent `?action=.xml;type=rss2;topic=<id>.0` ajouté
+à l’URL `index.php` du forum (`<id>` est le numéro de l’URL du sujet,
+`index.php?topic=<id>.<offset>`) et ne renvoient que ce fil. SMF 2.1 non :
+le forum Locus Map (SMF 2.1.7) n’annonce que des flux de toute la rubrique
+(`board=<n>`, dans les balises `<link rel="alternate">` de la page) et ignore
+`topic=`, si bien qu’un message d’un autre sujet a été notifié comme une
+réponse. Ouvrez l’URL du flux dans un navigateur et regardez les numéros
+`topic=` des liens des entrées. Si plusieurs apparaissent, ajoutez à la
+source une consigne de **filtre IA** (voir plus bas) qui ne garde que votre
+fil, par exemple « Seulement les messages du fil intitulé « Re: nom de mon
+outil » », ou utilisez le bouton « Notifier » du forum sur le sujet, qui
+envoie un e-mail à chaque réponse.
 
 ### Issues GitHub (dépôts publics)
 
