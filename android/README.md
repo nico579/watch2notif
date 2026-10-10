@@ -214,11 +214,12 @@ reconstruit pas l’historique complet d’une source très active.
 ## Claude et stockage des clés
 
 Dans chaque source, **Filtre IA** accepte une consigne en langage courant.
-Une consigne vide désactive le filtre. Claude Haiku reçoit le titre, l’auteur
+Une consigne vide désactive le filtre. Claude Haiku 5.5 reçoit le titre, l’auteur
 et jusqu’à 4000 caractères du message pour juger sa pertinence. Les entrées
 écartées sont mémorisées sans notification ; la raison d’un verdict positif
-apparaît dans la notification. Sans clé Claude, en cas d’erreur API ou de
-réponse invalide, l’application notifie quand même avec un avertissement.
+apparaît dans la notification. Sans clé Claude, en cas d’erreur API, de refus
+du modèle ou de réponse invalide, l’application notifie quand même avec un
+avertissement.
 L’API Anthropic est facturée séparément de l’abonnement Claude.
 
 Les verdicts positifs sont conservés pendant la reprise d’une notification

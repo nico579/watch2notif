@@ -63,7 +63,14 @@ class Juger(unittest.TestCase):
         self.assertEqual(requete.get_header("X-api-key"), "sk-test")
         self.assertEqual(requete.get_header("Anthropic-version"), filtre_ia.VERSION_API)
         corps = json.loads(requete.data.decode("utf-8"))
-        self.assertEqual(corps["model"], filtre_ia.MODELE)
+        self.assertEqual(corps["model"], "claude-haiku-5-5")
+        # Haiku 5.5 reflechit par defaut : effort bas, et de la place pour la reflexion.
+        self.assertEqual(corps["output_config"], {"effort": "low"})
+        self.assertGreaterEqual(corps["max_tokens"], 1024)
+        # Refuses (400) par Haiku 5.5 : budget de reflexion, echantillonnage, prefill.
+        for champ in ("thinking", "temperature", "top_p", "top_k"):
+            self.assertNotIn(champ, corps)
+        self.assertEqual(corps["messages"][-1]["role"], "user")
         message = corps["messages"][0]["content"]
         self.assertIn("Questions auxquelles blink2video repond.", message)
         self.assertIn("My USB clips vanish", message)
@@ -105,6 +112,33 @@ class Juger(unittest.TestCase):
         for texte in ("oui", '{"raison": "sans verdict"}', '{"pertinent": "yes"}', "{pas du json}"):
             with self.assertRaises(filtre_ia.FiltreIndisponible, msg=texte):
                 filtre_ia.juger("x", Entree(), cle="k", ouvrir=api_qui_repond(texte))
+
+    @staticmethod
+    def api_brute(donnees):
+        return lambda requete, timeout=None: ReponseSimulee(donnees)
+
+    def test_les_blocs_de_reflexion_avant_le_texte_sont_ignores(self):
+        # La reponse de Haiku 5.5 peut commencer par un bloc "thinking" au texte vide.
+        donnees = {"stop_reason": "end_turn", "content": [
+            {"type": "thinking", "thinking": "", "signature": "sig"},
+            {"type": "text", "text": '{"pertinent": true, "raison": "question sur le stockage"}'}]}
+        verdict = filtre_ia.juger("x", Entree(), cle="k", ouvrir=self.api_brute(donnees))
+        self.assertTrue(verdict.pertinent)
+        self.assertEqual(verdict.raison, "question sur le stockage")
+
+    def test_un_refus_du_modele_est_dit(self):
+        donnees = {"stop_reason": "refusal", "stop_details": {"type": "refusal", "category": "cyber"},
+                   "content": []}
+        with self.assertRaises(filtre_ia.FiltreIndisponible) as ctx:
+            filtre_ia.juger("x", Entree(), cle="k", ouvrir=self.api_brute(donnees))
+        self.assertIn("refuse", str(ctx.exception))
+        self.assertIn("cyber", str(ctx.exception))
+
+    def test_une_reponse_coupee_par_max_tokens_est_dite(self):
+        donnees = {"stop_reason": "max_tokens", "content": [{"type": "thinking", "thinking": "", "signature": "s"}]}
+        with self.assertRaises(filtre_ia.FiltreIndisponible) as ctx:
+            filtre_ia.juger("x", Entree(), cle="k", ouvrir=self.api_brute(donnees))
+        self.assertIn("max_tokens", str(ctx.exception))
 
 
 class BranchementDansLaBoucle(unittest.TestCase):

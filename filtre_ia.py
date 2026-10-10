@@ -14,7 +14,8 @@ config.json ni dans la page. L'API Anthropic se paie a l'usage, a part de tout
 abonnement Claude ; avec Haiku, trier quelques dizaines de messages par mois
 coute quelques centimes.
 
-Bibliotheque standard seule (urllib), comme les fournisseurs GitHub et YouTube.
+Bibliotheque standard seule (urllib), comme les fournisseurs GitHub et YouTube :
+le SDK officiel ajouterait une dizaine de paquets au bundle pour une seule requete.
 """
 from __future__ import annotations
 
@@ -27,7 +28,13 @@ from dataclasses import dataclass
 
 URL = "https://api.anthropic.com/v1/messages"
 VERSION_API = "2023-06-01"
-MODELE = "claude-haiku-4-5"
+MODELE = "claude-haiku-5-5"
+# Haiku 5.5 reflechit par defaut, et cette reflexion compte dans max_tokens :
+# avec les 200 tokens de Haiku 4.5, elle pouvait epuiser la reponse avant le
+# JSON. L'effort "low" la reduit (le modele s'en passe sur une question simple),
+# et 1024 tokens laissent la place a la reflexion plus la ligne de verdict.
+EFFORT = "low"
+MAX_TOKENS = 1024
 VARIABLE_CLE = "ANTHROPIC_API_KEY"
 # Un message Reddit ou un commentaire tient largement dans cette limite ; au-dela,
 # le debut suffit a juger, et le cout reste borne.
@@ -99,7 +106,8 @@ def juger(consigne: str, entree, *, cle: str | None = None, ouvrir=urllib.reques
         raise FiltreIndisponible(f"variable {VARIABLE_CLE} absente")
     corps = json.dumps({
         "model": MODELE,
-        "max_tokens": 200,
+        "max_tokens": MAX_TOKENS,
+        "output_config": {"effort": EFFORT},
         "system": CONSIGNE_SYSTEME,
         "messages": [{"role": "user", "content": _message_utilisateur(consigne, entree)}],
     }).encode("utf-8")
@@ -120,6 +128,16 @@ def juger(consigne: str, entree, *, cle: str | None = None, ouvrir=urllib.reques
         raise FiltreIndisponible(f"API {erreur.code} {detail}".strip()) from erreur
     except (urllib.error.URLError, OSError, ValueError) as erreur:
         raise FiltreIndisponible(str(erreur)) from erreur
+    # Haiku 5.5 peut decliner (classificateurs de securite, HTTP 200) : le dire,
+    # plutot qu'un « reponse sans JSON » trompeur. Pas de repli serveur pour ce
+    # modele ; l'appelant notifie quand meme.
+    if donnees.get("stop_reason") == "refusal":
+        categorie = (donnees.get("stop_details") or {}).get("category") or "?"
+        raise FiltreIndisponible(f"le modele a refuse de classer ce message ({categorie})")
+    # Les blocs "thinking" (vides par defaut) precedent le texte : on ne lit que
+    # les blocs "text", jamais le premier bloc par position.
     texte = "".join(bloc.get("text", "") for bloc in donnees.get("content") or []
                     if isinstance(bloc, dict) and bloc.get("type") == "text")
+    if not texte.strip() and donnees.get("stop_reason") == "max_tokens":
+        raise FiltreIndisponible(f"reponse coupee avant le verdict (max_tokens {MAX_TOKENS})")
     return lire_verdict(texte)

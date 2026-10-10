@@ -78,4 +78,29 @@ public class ProvidersTest {
             try { AiFilter.parseVerdict(text); fail(); } catch (SourceException expected) { }
         }
     }
+
+    @Test public void aiFilterUsesHaiku55AtLowEffortAndSkipsLeadingThinkingBlocks() throws Exception {
+        String[] sent = new String[1];
+        AiFilter filter = new AiFilter((url, key, body, api) -> {
+            sent[0] = body;
+            return ("{\"stop_reason\":\"end_turn\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"s\"},"
+                    + "{\"type\":\"text\",\"text\":\"{\\\"pertinent\\\":true,\\\"raison\\\":\\\"ok\\\"}\"}]}").getBytes(StandardCharsets.UTF_8);
+        });
+        AiFilter.Verdict verdict = filter.judge("rule", new Entry("1", "Title", "a", "", "Body", 0), "key");
+        assertTrue(verdict.relevant); assertEquals("ok", verdict.reason);
+        org.json.JSONObject payload = new org.json.JSONObject(sent[0]);
+        assertEquals("claude-haiku-5-5", payload.getString("model"));
+        assertEquals("low", payload.getJSONObject("output_config").getString("effort"));
+        assertTrue(payload.getInt("max_tokens") >= 1024);
+        // Rejected with a 400 by Haiku 5.5: a thinking budget and sampling parameters.
+        assertFalse(payload.has("thinking")); assertFalse(payload.has("temperature"));
+    }
+
+    @Test public void aiFilterReportsARefusalInsteadOfAParseError() throws Exception {
+        AiFilter filter = new AiFilter((url, key, body, api) ->
+                "{\"stop_reason\":\"refusal\",\"stop_details\":{\"category\":\"cyber\"},\"content\":[]}".getBytes(StandardCharsets.UTF_8));
+        try { filter.judge("rule", new Entry("1", "Title", "a", "", "Body", 0), "key"); fail(); }
+        catch (SourceException expected) { assertEquals("refusal", expected.code); }
+        assertEquals(R.string.error_ai_refusal, SourceException.message("refusal"));
+    }
 }

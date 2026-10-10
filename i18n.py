@@ -9,7 +9,11 @@ Le francais s'ecrit avec ses accents et vouvoie : la page cotoie les textes
 de nico579_commons (bandeau de mise a jour, panneau Reglages, menu de
 l'icone), accentues, et un melange se voyait d'une ligne a l'autre.
 """
-import locale
+import functools
+import os
+import re
+import subprocess
+import sys
 
 STRINGS = {
     "window_title": {"en": "watch2notif - settings", "fr": "watch2notif - réglages"},
@@ -158,12 +162,60 @@ STRINGS = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def detect_default_lang() -> str:
+    """"fr" si la langue du systeme est le francais, "en" sinon. Mise en cache :
+    elle ne change pas en cours de route, et sous macOS elle coute un appel a
+    `defaults`."""
     try:
-        code = locale.getdefaultlocale()[0] or ""
+        return "fr" if _langue_systeme() == "fr" else "en"
     except Exception:
-        code = ""
-    return "fr" if code.lower().startswith("fr") else "en"
+        return "en"
+
+
+# Remplace locale.getdefaultlocale(), deprecie depuis Python 3.11 et retire en
+# 3.15. locale.getlocale(), son successeur, lit la locale que Python configure
+# au demarrage, ce que l'executable PyInstaller ne fait pas forcement : rien
+# ici n'en depend.
+def _langue_systeme(plateforme: str | None = None, environ=None) -> str:
+    """Code de langue en minuscules ("fr", "en"...), ou "" si rien ne le dit."""
+    plateforme = plateforme or sys.platform
+    environ = os.environ if environ is None else environ
+    if plateforme == "win32":
+        import ctypes
+        # Langue d'affichage de Windows, pas son format regional. Les 10 bits
+        # bas du LANGID sont la langue principale (PRIMARYLANGID) : 0x0C est
+        # LANG_FRENCH, quel que soit le pays.
+        langid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        return "fr" if langid & 0x3FF == 0x0C else ""
+    # L'ordre dans lequel gettext cherche la langue des messages.
+    for variable in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        code = _code_langue(environ.get(variable, "").split(":")[0])
+        if code:
+            return code
+    if plateforme == "darwin":
+        # Une application lancee du Finder ou par launchd n'a pas LANG : la
+        # langue choisie dans les Reglages Systeme est la preference AppleLanguages.
+        sortie = subprocess.run(["defaults", "read", "-g", "AppleLanguages"],
+                                capture_output=True, text=True, timeout=5, check=False).stdout
+        return _code_langue(_premiere_langue_apple(sortie))
+    return ""
+
+
+def _code_langue(valeur: str) -> str:
+    """"fr" pour fr_FR.UTF-8, fr-CA ou fr ; "" pour C, POSIX ou une chaine vide."""
+    code = re.split(r"[_.@-]", valeur.strip(), maxsplit=1)[0].lower()
+    return "" if code in ("", "c", "posix") else code
+
+
+def _premiere_langue_apple(sortie: str) -> str:
+    """Premier element de `defaults read -g AppleLanguages`, une liste au format
+    plist texte : "(\\n    \\"fr-FR\\",\\n    en\\n)" donne "fr-FR"."""
+    for element in sortie.strip().strip("()").split(","):
+        element = element.strip().strip('"')
+        if element:
+            return element
+    return ""
 
 
 def t(key: str, lang: str, **kwargs) -> str:

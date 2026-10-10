@@ -7,7 +7,11 @@ import static io.github.nico579.watch2notif.Models.*;
 
 /** Same optional per-source policy as filtre_ia.py in the desktop AI-filter branch. */
 final class AiFilter {
-    static final String MODEL = "claude-haiku-4-5-20251001";
+    static final String MODEL = "claude-haiku-5-5";
+    // Claude Haiku 5.5 thinks by default and thinking counts toward max_tokens: low effort keeps it
+    // short (often none) and 1024 tokens leave room for it plus the verdict, as in filtre_ia.py.
+    static final String EFFORT = "low";
+    static final int MAX_TOKENS = 1024;
     private final Network.Transport transport;
     AiFilter(Network.Transport transport) { this.transport = transport; }
 
@@ -27,9 +31,13 @@ final class AiFilter {
                     + "En cas de doute sérieux, réponds true pour éviter de manquer un message utile.";
             String user = new JSONObject().put("consigne", instruction).put("message", new JSONObject()
                     .put("titre", entry.title).put("auteur", entry.author).put("texte", entry.summary)).toString();
-            JSONObject payload = new JSONObject().put("model", MODEL).put("max_tokens", 200).put("system", system)
+            JSONObject payload = new JSONObject().put("model", MODEL).put("max_tokens", MAX_TOKENS)
+                    .put("output_config", new JSONObject().put("effort", EFFORT)).put("system", system)
                     .put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", user)));
             JSONObject response = new JSONObject(new String(transport.request("https://api.anthropic.com/v1/messages", key, payload.toString(), true), StandardCharsets.UTF_8));
+            // Safety classifiers can decline with HTTP 200, and Haiku 5.5 has no server-side fallback.
+            if ("refusal".equals(response.optString("stop_reason"))) throw new SourceException("refusal");
+            // Thinking blocks (empty by default) can come first: read text blocks by type, never by position.
             JSONArray content = response.getJSONArray("content");
             StringBuilder text = new StringBuilder();
             for (int i = 0; i < content.length(); i++) {

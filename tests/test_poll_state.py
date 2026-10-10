@@ -214,6 +214,34 @@ class PollStateTests(unittest.TestCase):
         )
         self.assertEqual(notifier.load_feed_state("feed").newest_timestamp, future)
 
+    def test_seen_ids_are_capped_by_forgetting_the_oldest_hidden_ones(self):
+        self.write_state({"version": 2, "seen_ids": ["a", "b", "c", "d"], "pending_ids": [],
+                          "newest_timestamp": self.now - 1000})
+        with mock.patch.object(notifier, "MAX_SEEN_IDS", 3):
+            send = self.poll([FakeEntry("e", self.now - 10), FakeEntry("d", self.now - 2000)])
+        self.assertEqual([call.args[1].id for call in send.call_args_list], ["e"])
+        # a and b, the oldest ones the source no longer shows, are forgotten; order is kept.
+        self.assertEqual(self.read_state()["seen_ids"], ["c", "d", "e"])
+
+    def test_ids_the_source_still_shows_are_never_forgotten(self):
+        self.write_state({"version": 2, "seen_ids": ["a", "b", "c"], "pending_ids": [],
+                          "newest_timestamp": self.now - 1000})
+        visible = [FakeEntry(entry_id, self.now - 2000) for entry_id in ("a", "b", "c")]
+        with mock.patch.object(notifier, "MAX_SEEN_IDS", 2):
+            send = self.poll(visible)
+        send.assert_not_called()
+        # Forgetting one would make it look new on the next cycle.
+        self.assertEqual(self.read_state()["seen_ids"], ["a", "b", "c"])
+
+    def test_forgotten_dated_entry_coming_back_is_not_renotified(self):
+        self.write_state({"version": 2, "seen_ids": ["old", "x", "y"], "pending_ids": [],
+                          "newest_timestamp": self.now - 100})
+        with mock.patch.object(notifier, "MAX_SEEN_IDS", 2):
+            self.poll([FakeEntry("x", self.now - 200), FakeEntry("y", self.now - 100)])
+            self.assertEqual(self.read_state()["seen_ids"], ["x", "y"])
+            send = self.poll([FakeEntry("old", self.now - 50_000), FakeEntry("y", self.now - 100)])
+        send.assert_not_called()
+
 
 class _StopLoop(Exception):
     pass
