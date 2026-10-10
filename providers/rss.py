@@ -23,6 +23,14 @@ socket.setdefaulttimeout(15)
 
 def fetch_entries(url: str) -> list:
     feed = feedparser.parse(url, request_headers={"User-Agent": USER_AGENT})
+    # Une reponse HTTP d'erreur (429 de Reddit, 503...) n'est ni "bozo" ni
+    # exceptionnelle pour feedparser : elle rend simplement zero entree. Prise
+    # pour un flux vide, elle amorcait une source nouvelle sans rien voir,
+    # puis tout son contenu etait notifie au cycle suivant. "status" est absent
+    # pour un fichier local ou une URL non HTTP.
+    status = feed.get("status")
+    if isinstance(status, int) and status >= 400:
+        raise RuntimeError(f"HTTP {status}")
     if feed.bozo and not feed.entries:
         raise RuntimeError(feed.bozo_exception)
     return feed.entries
