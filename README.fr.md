@@ -9,77 +9,84 @@ Application pour Windows, Linux, macOS et Android qui surveille les flux
 RSS/Atom, issues GitHub, réponses de discussion, Sponsors et commentaires
 YouTube, et affiche une notification native quand une nouveauté apparaît.
 
-Parti d'un besoin de surveiller son inbox Reddit (via les flux RSS prives
-de reddit.com/prefs/feeds), puis generalise : n'importe quel flux
-RSS/Atom fonctionne, plus les issues GitHub sur les repos publics (pas
-d'auth necessaire), les reponses a une discussion GitHub, Sponsors et les
-commentaires de video YouTube. Les types de sources utilisent une interface
+Partie d’un besoin de surveiller une inbox Reddit (via les flux RSS privés
+de reddit.com/prefs/feeds), puis généralisée : n’importe quel flux
+RSS/Atom fonctionne, plus les issues GitHub sur les dépôts publics (sans
+authentification), les réponses à une discussion GitHub, Sponsors et les
+commentaires d’une vidéo YouTube. Les types de sources utilisent une interface
 de provider commune et un registre sur chaque plateforme.
 
-## Captures d'ecran
+## Captures d’écran
 
-![Panneau de reglage](screenshots/settings.png)
-![Menu du tray](screenshots/systray.png)
+![Panneau de réglages](screenshots/settings.png)
+![Menu de l’icône](screenshots/systray.png)
 ![Historique des notifications](screenshots/history.png)
 
 ## Fonctionnement
 
-- `notifier.py` : boucle de fond, poll les sources activees dans
-  `config.json`, chacune avec son propre intervalle, notification
-  desktop sur chaque nouvelle
-  entree. Etat "deja vu" garde par source dans `state/`. `config.json`,
-  `state/` et l'historique des notifications vivent dans le dossier de
-  donnees standard de l'OS (`%APPDATA%` sous Windows, dossier XDG sous
-  Linux, Application Support sous Mac, via `platformdirs`, voir
-  `data_paths.py`), jamais a cote de l'executable : une reinstallation ou
-  une reconstruction ne doit jamais les effacer. C'est aussi le
-  point d'entree unique du binaire construit : une icone de zone de
-  notification (`pystray`, par
-  [nico579-commons](https://github.com/nico579/nico579-commons)) au meme
-  menu que les trois applications soeurs : Ouvrir (la page de
-  reglages/historique, dans le navigateur par defaut), Mettre a jour
-  quand une version plus recente existe, Redemarrer, Arreter, et Creer un
-  raccourci sur le Bureau. La pause, l'historique et le lien d'aide
-  GitHub sont dans la page. Verifie la page de
-  releases GitHub une fois par heure et ajoute cette entree de menu + une
-  notification desktop unique quand une nouvelle version sort
-  (`update_check.py`). Dans l'application empaquetee, la page de reglages
-  propose de l'installer, verifie la taille et le SHA-256 de l'asset,
-  puis remplace le bundle apres sa fermeture et le redemarre en conservant
-  les reglages et l'historique (`self_update.py`). Un checkout source n'est
-  jamais modifie automatiquement.
+- `notifier.py` : boucle de fond qui interroge les sources activées dans
+  `config.json`, chacune à son propre intervalle, et affiche une
+  notification pour chaque nouvelle entrée. L’état « déjà vu » de chaque
+  source est gardé dans `state/`. `config.json`, `state/` et l’historique
+  des notifications vivent dans le dossier de données standard du système
+  (`%APPDATA%` sous Windows, dossier XDG sous Linux, Application Support
+  sous macOS, via `platformdirs`, voir `data_paths.py`), jamais à côté de
+  l’exécutable : une réinstallation ou une reconstruction ne doit jamais
+  les effacer. C’est aussi le point d’entrée unique du binaire construit :
+  une icône dans la zone de notification (`pystray`, par
+  [nico579-commons](https://github.com/nico579/nico579-commons)) au même
+  menu que les trois applications sœurs : Ouvrir (la page de
+  réglages/historique, dans le navigateur par défaut), Mettre à jour
+  quand une version plus récente existe, Redémarrer, Arrêter, et Créer un
+  raccourci sur le Bureau. La pause, l’historique et le lien d’aide
+  GitHub sont dans la page. watch2notif consulte les releases GitHub une
+  fois par heure et ajoute cette entrée de menu, plus une notification
+  unique, quand une nouvelle version sort (`update_check.py`). Dans
+  l’application empaquetée, la page de réglages propose de l’installer,
+  vérifie la taille et le SHA-256 de l’asset, puis remplace le bundle
+  après sa fermeture et le redémarre en conservant les réglages et
+  l’historique (`self_update.py`). Un checkout des sources n’est jamais
+  modifié automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
   `github_issues.py`, `github_discussion.py`, `github_sponsors.py`, `youtube_comments.py`),
   chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source demande un module ici et son enregistrement
   dans `providers/__init__.py`.
-- `gui/` + `nico579_commons.serveweb` : page de reglages/historique (ajouter/retirer
-  des sources, choisir leur type, regler leur intervalle de polling
-  individuel, activer l'autostart, parcourir les 200 dernieres
-  notifications envoyees, double-clic sur une ligne pour rouvrir son
-  lien), servie en HTTP local (stdlib `http.server`, aucun framework) et
-  ouverte dans le navigateur par defaut du systeme - meme architecture
-  que les projets jumeaux lidar2map et blink2video. Bilingue FR/EN,
-  bascule en haut a droite. Accessible depuis l'entree Ouvrir du tray, ou
-  avec `notifier.py --settings`.
-- `notify_backend.py` : backend de notification par OS - `win11toast`
-  (Windows, toast WinRT moderne, bon nom d'appli, cliquable), `pync`
-  (Mac, via terminal-notifier, cliquable), `plyer` (Linux, pas encore
+- `gui/` + `nico579_commons.serveweb` : page de réglages/historique (ajouter
+  ou retirer des sources, choisir leur type, régler leur intervalle entre
+  5 secondes et une semaine, activer le démarrage automatique dans le
+  panneau Réglages, parcourir les 200 dernières notifications envoyées et
+  cliquer un titre pour rouvrir son lien), servie en HTTP local (stdlib
+  `http.server`, aucun framework) et ouverte dans le navigateur par défaut,
+  même architecture que les projets jumeaux lidar2map et blink2video.
+  Bilingue FR/EN, bascule en haut à droite. Accessible depuis l’entrée
+  Ouvrir de l’icône, ou avec `notifier.py --settings`.
+- `notify_backend.py` : notification native par système, `win11toast`
+  (Windows, toast WinRT moderne, bon nom d’application, cliquable), `pync`
+  (macOS, via terminal-notifier, cliquable), `plyer` (Linux, pas encore
   cliquable).
-- `autostart_manager.py` : active/desactive l'autostart selon l'OS
-  (raccourci dans le dossier Demarrage sous Windows, service utilisateur
-  systemd sous Linux, launchd sous Mac). Detecte le mode fige
-  PyInstaller pour pointer vers le binaire construit plutot que le
-  script Python.
+- `autostart_manager.py` : active ou désactive le démarrage automatique
+  selon le système (raccourci dans le dossier Démarrage sous Windows,
+  service utilisateur systemd sous Linux, agent launchd sous macOS). En
+  mode figé PyInstaller, il pointe vers le binaire construit plutôt que
+  vers le script Python.
 
 ## Installation
 
 ### Depuis les sources
 
+Python 3.12 est la version testée par la CI, et `requirements.txt` fige
+chaque dépendance avec son empreinte pour elle. Un environnement virtuel
+les tient à l’écart du reste du système :
+
 ```bash
-pip install -r requirements.txt
-python notifier.py   # le premier lancement ouvre la page de reglages dans le navigateur
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt          # Windows : .venv\Scripts\pip
+.venv/bin/python notifier.py   # le premier lancement ouvre la page de réglages dans le navigateur
 ```
+
+Options utiles : `--settings` ouvre la page de l’instance en cours (ou en
+démarre une), `--no-tray` fonctionne sans icône (Ctrl+C pour arrêter).
 
 ### Binaire autonome
 
@@ -88,18 +95,43 @@ macOS arm64) sur
 la page [Releases](https://github.com/nico579/watch2notif/releases/latest),
 sans Python à installer. Extraire l’archive et conserver le dossier
 `watch2notif` complet, y compris `_internal`, ou le bundle `.app` macOS.
-Lancer `watch2notif.exe`, `watch2notif` ou l’application macOS démarre la surveillance ; la page de
-reglages/historique s'ouvre depuis son icone de tray (Ouvrir) ou
-avec `watch2notif --settings`.
+Lancer `watch2notif.exe`, `watch2notif` ou l’application macOS démarre la
+surveillance ; la page de réglages/historique s’ouvre depuis son icône
+(Ouvrir) ou avec `watch2notif --settings`.
 
-Lorsqu'une mise a jour compatible est publiee, la page de reglages affiche
-un bandeau avant tout telechargement. "Telecharger et installer", ou
-Mettre a jour dans le menu du tray, prepare
-et valide le nouveau bundle complet ; watch2notif ne se ferme que lorsque
-le programme de remplacement externe est pret, puis redemarre sur la
-nouvelle version. Si la preparation, le remplacement ou le redemarrage
-echoue, l'installation courante est conservee ou restauree. Une
-plateforme non prise en charge retombe sur la page de la release.
+Lorsqu’une mise à jour compatible est publiée, la page de réglages affiche
+un bandeau avant tout téléchargement. « Télécharger et installer », ou
+Mettre à jour dans le menu de l’icône, prépare et valide d’abord le
+nouveau bundle complet ; watch2notif ne se ferme que lorsque le programme
+de remplacement externe est prêt, puis redémarre sur la nouvelle version.
+Si la préparation, le remplacement ou le redémarrage échoue, l’installation
+courante est conservée ou restaurée. Une plateforme non prise en charge
+renvoie vers la page de la release.
+
+### Clés d’API sur PC
+
+Certaines sources demandent une clé : `GITHUB_TOKEN` (obligatoire pour les
+discussions et Sponsors, facultative pour les issues), `YOUTUBE_API_KEY` et,
+pour le filtre IA, `ANTHROPIC_API_KEY`. Sur PC, elles sont lues dans les
+variables d’environnement et jamais écrites dans `config.json` : un export
+de la configuration ou une capture de la page ne peut pas les divulguer.
+Les sections plus bas expliquent comment obtenir chacune.
+
+watch2notif lit ces variables une seule fois, au démarrage. Après en avoir
+posé une, utiliser **Redémarrer** dans le menu de l’icône ; sinon l’instance
+en cours continue sans elle.
+
+- **Windows** : `setx GITHUB_TOKEN "ghp_..."` dans un terminal (ou
+  Propriétés système, Variables d’environnement). `setx` ne vaut que pour
+  les programmes lancés ensuite, y compris le raccourci de démarrage.
+- **Linux** : le démarrage automatique lance watch2notif comme service
+  utilisateur systemd, qui ne lit ni `~/.bashrc` ni `~/.profile`. Mettre les
+  variables dans `~/.config/environment.d/watch2notif.conf` (une ligne
+  `NOM=valeur` chacune), puis fermer et rouvrir la session.
+- **macOS** : le démarrage automatique passe par un agent launchd, qui ne lit
+  pas non plus le profil du shell. `launchctl setenv GITHUB_TOKEN ghp_...`
+  rend une variable visible des applications lancées ensuite, jusqu’au
+  prochain redémarrage.
 
 ### Application Android
 
@@ -155,7 +187,7 @@ affichent la date du dernier accès réussi.
 
 Les clés GitHub, YouTube et Claude peuvent aussi être saisies directement dans
 **Réglages → Identifiants des API**, puis enregistrées. Sur PC, utiliser les
-variables d’environnement décrites plus bas. Le transfert QR importe ces clés
+variables d’environnement décrites plus haut. Le transfert QR importe ces clés
 du PC dans le stockage chiffré du téléphone.
 
 ### Partager les réglages du PC vers Android
@@ -236,71 +268,73 @@ Voir [.github/workflows/ci.yml](.github/workflows/ci.yml),
 
 ## Sources
 
-### RSS/Atom (n'importe quel flux)
+### RSS/Atom (n’importe quel flux)
 
-N'importe quelle URL RSS/Atom valide fonctionne. Pour Reddit
-specifiquement : sur `https://www.reddit.com/prefs/feeds/`, chaque flux
+N’importe quelle URL RSS/Atom valide fonctionne. Pour Reddit en
+particulier : sur `https://www.reddit.com/prefs/feeds/`, chaque flux
 (inbox, front page, saved, upvoted...) a un lien RSS/JSON avec un token
-prive dans l'URL. Ne pas partager ces URLs : elles donnent un acces
-en lecture au contenu prive associe. Leur disponibilité et leurs accès
+privé dans l’URL. Ne pas partager ces URLs : elles donnent un accès
+en lecture au contenu privé associé. Leur disponibilité et leurs accès
 dépendent de Reddit ; si un flux ne fonctionne plus, vérifier son URL
 actuelle dans les réglages des flux du compte.
 
-Les forums batis sur SMF (Simple Machines Forum, un moteur de forum PHP
+Les forums bâtis sur SMF (Simple Machines Forum, un moteur de forum PHP
 courant) exposent un flux RSS natif par sujet, sans plugin : ajouter
-`?action=.xml;type=rss2;topic=<id>.0` a l'URL `index.php` du forum, ou
-`<id>` est l'identifiant numerique du sujet, visible dans l'URL du sujet
-lui-meme (`index.php?topic=<id>.<offset>`). Il ne renvoie que les
-messages de ce fil, ce qui en fait un watcher "prevenir des nouvelles
-reponses a mon post" tout fait.
+`?action=.xml;type=rss2;topic=<id>.0` à l’URL `index.php` du forum, où
+`<id>` est l’identifiant numérique du sujet, visible dans l’URL du sujet
+lui-même (`index.php?topic=<id>.<offset>`). Il ne renvoie que les
+messages de ce fil, ce qui en fait un « prévenez-moi des nouvelles
+réponses à mon message » tout fait.
 
-### Issues GitHub (repos publics)
+### Issues GitHub (dépôts publics)
 
-Entre `owner/repo` comme source. Utilise l'API REST publique de GitHub,
-pas d'authentification necessaire pour les repos publics. Limite a 60
-requetes/heure par IP sans token, 5000/heure avec un token (variable
-d'environnement `GITHUB_TOKEN` sur PC, ou token GitHub dans les réglages
-Android). Si le CLI `gh` est deja installe et
-connecte, `gh auth token` en affiche un ; sinon, en creer un a la main
-sur GitHub.com : menu avatar -> Settings -> Developer settings ->
-Personal access tokens -> Tokens (classic) -> Generate new token
-(classic). Aucune case a cocher pour un acces lecture seule aux repos
-publics, le token doit juste exister pour authentifier la requete et
-lever la limite par IP. Prefere un intervalle plus long (quelques
-minutes) pour ce type de source, pour rester sous la limite sans token.
+Saisir `owner/repo` comme source. L’API REST publique de GitHub ne demande
+pas d’authentification pour les dépôts publics, mais limite à 60
+requêtes/heure par IP sans token, 5000/heure avec (variable
+d’environnement `GITHUB_TOKEN` sur PC, ou token GitHub dans les réglages
+Android). Si le CLI `gh` est déjà installé et connecté, `gh auth token` en
+affiche un ; sinon, en créer un à la main sur GitHub.com : menu avatar ->
+Settings -> Developer settings -> Personal access tokens -> Tokens
+(classic) -> Generate new token (classic). Aucune case à cocher pour un
+accès en lecture seule aux dépôts publics : le token doit seulement
+exister, pour authentifier la requête et lever la limite par IP. Préférer
+un intervalle de quelques minutes pour ce type de source, afin de rester
+sous la limite sans token.
 
-### Reponses a une discussion GitHub
+### Réponses à une discussion GitHub
 
-Entre `owner/repo#numero` comme source (le numero apres `/discussions/`
-dans l'URL). Surveille un fil de discussion precis et signale les
-nouveaux commentaires et reponses. Contrairement aux issues, les
-Discussions n'ont aucune API REST : ceci passe par l'API GraphQL de
-GitHub, qui refuse les requetes anonymes meme sur un repo public. La
-clé `GITHUB_TOKEN` est donc obligatoire, pas juste
-un bonus de limite de debit (meme variable que pour les issues GitHub,
-voir plus haut pour l'obtenir).
+Saisir `owner/repo#numero` comme source (le numéro après `/discussions/`
+dans l’URL). watch2notif surveille ce fil et signale les nouveaux
+commentaires et réponses, parmi les 100 commentaires les plus récents et
+les 100 réponses les plus récentes de chacun. Contrairement aux issues,
+les Discussions n’ont aucune API REST : ce provider passe par l’API
+GraphQL de GitHub, qui refuse les requêtes anonymes même sur un dépôt
+public. La clé `GITHUB_TOKEN` est donc obligatoire, pas un simple bonus
+de limite de débit (même variable que pour les issues GitHub, voir
+plus haut pour l’obtenir).
 
 ### GitHub Sponsors
 
-Entre ton identifiant GitHub (ou celui d'une organisation) comme source.
-Surveille les nouveaux parrainages via l'API GraphQL comme les reponses de
-discussion GitHub, donc `GITHUB_TOKEN` est requis la aussi, mais avec en plus le scope
-`read:user` par-dessus les scopes habituels : ce scope est ce qui expose un
-identifiant stable pour un sponsor reste anonyme (son profil est cache,
-mais le parrainage lui-meme garde un identifiant distinct, donc un
-deuxieme sponsor anonyme n'est jamais confondu avec le premier). Un
-evenement rare compare a une reponse de discussion, d'ou un intervalle par
-defaut plus long.
+Saisir un identifiant GitHub (le sien ou celui d’une organisation) comme
+source. Les nouveaux parrainages passent par l’API GraphQL, comme les
+réponses de discussion, donc `GITHUB_TOKEN` est requis là aussi, avec en
+plus le scope `read:user` : c’est lui qui expose un identifiant stable
+pour un sponsor resté anonyme (son profil est caché, mais le parrainage
+lui-même garde un identifiant distinct, si bien qu’un deuxième sponsor
+anonyme n’est jamais confondu avec le premier). L’événement est rare
+comparé à une réponse de discussion, d’où un intervalle par défaut plus
+long.
 
 ### Commentaires YouTube
 
-Entre une URL de video (n'importe quel format courant) ou un ID brut
-comme source. Surveille une video et signale les nouveaux commentaires
-de premier niveau et leurs reponses visibles. YouTube expose un flux
-Atom pour les nouvelles videos d'une chaine, mais aucun pour les
-commentaires d'une video : ceci passe par l'API YouTube Data v3. Necessite
-une cle API gratuite : Google Cloud Console -> APIs & Services -> activer
-"YouTube Data API v3" -> Credentials -> Create API key, puis definir la
+Saisir une URL de vidéo (`watch?v=`, `youtu.be/`, `/embed/`, `/shorts/` ou
+`/live/`) ou un identifiant de 11 caractères comme source. watch2notif
+surveille cette vidéo et signale les nouveaux commentaires de premier
+niveau et leurs réponses visibles. YouTube expose un flux Atom pour les
+nouvelles vidéos d’une chaîne, mais aucun pour les commentaires d’une
+vidéo : ce provider passe donc par l’API YouTube Data v3. Il faut une clé
+d’API gratuite : Google Cloud Console -> APIs & Services -> activer
+"YouTube Data API v3" -> Credentials -> Create API key, puis définir la
 variable `YOUTUBE_API_KEY` sur PC, ou saisir la clé API YouTube dans les
 réglages Android. Le provider actuel lit jusqu’à 100 fils récents et les
 réponses incluses dans le résultat ; il ne récupère pas tout leur historique.
@@ -313,57 +347,64 @@ choisir les intervalles.
 
 ## Filtre IA (facultatif)
 
-Certaines sources sont trop larges pour etre utiles telles quelles. Une
-recherche Reddit sur "local storage" dans un subreddit de cameras remonte
-les personnes a qui votre outil rendrait service, mais aussi des plaintes
-de facturation et des photos de cameras neuves. Les mots seuls ne font pas
-la difference ; la lecture du message, si.
+Certaines sources sont trop larges pour être utiles telles quelles. Une
+recherche Reddit sur "local storage" dans un subreddit de caméras remonte
+les personnes à qui votre outil rendrait service, mais aussi des plaintes
+de facturation et des photos de caméras neuves. Les mots seuls ne font pas
+la différence ; la lecture du message, si.
 
 Sur PC, chaque source a un bouton **Filtre IA** ; sur Android, modifier le
-champ **Filtre IA** de la source. Décrire, en langage courant, les entrees qui
-meritent une notification, par exemple : "Les questions de personnes qui veulent
-garder ou telecharger leurs clips Blink sans abonnement. Pas les plaintes
-de facturation, pas les problemes de detection de mouvement." Avant de
-notifier une nouvelle entree, watch2notif envoie son titre et son texte a
-Claude Haiku 4.5 avec cette consigne, et ne notifie que celles qu'il juge
-pertinentes, avec en tete de la notification une phrase qui dit pourquoi.
-Les autres sont memorisees comme vues et ne reviennent jamais. Une zone
-vide veut dire : pas de filtre.
+champ **Filtre IA** de la source. Décrire, en langage courant, les entrées
+qui méritent une notification, par exemple : « Les questions de personnes
+qui veulent garder ou télécharger leurs clips Blink sans abonnement. Pas
+les plaintes de facturation, pas les problèmes de détection de
+mouvement. » Avant de notifier une nouvelle entrée, watch2notif envoie son
+titre et son texte à Claude Haiku 4.5 avec cette consigne, et ne notifie
+que celles qu’il juge pertinentes, avec en tête de la notification une
+phrase qui dit pourquoi. Les autres sont mémorisées comme vues et ne
+reviennent jamais. Une zone vide veut dire : pas de filtre.
 
-Il faut une cle d'API Anthropic dans la variable d'environnement
+Il faut une clé d’API Anthropic dans la variable d’environnement
 `ANTHROPIC_API_KEY` sur PC, ou dans les réglages Android pour la clé Claude
-([console Anthropic](https://console.anthropic.com)). L'API se paie a l'usage,
+([console Anthropic](https://console.anthropic.com)). L’API se paie à l’usage,
 à part de tout abonnement Claude ; le coût dépend du nombre et de la longueur
-des messages. Si la cle manque ou que l'API ne
-repond pas, watch2notif notifie quand meme et le dit dans la
-notification : une entree n'est jamais perdue en silence.
+des messages. Si la clé manque ou que l’API ne répond pas, watch2notif
+notifie quand même et le dit dans la notification : une entrée n’est jamais
+perdue en silence.
 
 ## Ajouter un type de source
 
 Un provider est un module dans `providers/` qui expose deux choses :
 
-- `LABEL` : nom affiche dans la liste des types de source du panneau de
-  reglage.
-- `fetch_entries(source) -> list` : prend la chaine de source saisie par
-  l'utilisateur (une URL, `owner/repo`...) et renvoie la liste actuelle
-  des entrees. Chaque entree doit exposer `.id` et `.get(key, default)`,
-  la forme dont `notifier.py` a besoin pour detecter les nouvelles
-  entrees et lire `title`, `author`, `link`, `summary`.
+- `LABEL` : nom affiché dans la liste des types de source de la page de
+  réglages.
+- `fetch_entries(source) -> list` : prend la chaîne de source saisie par
+  l’utilisateur (une URL, `owner/repo`...) et renvoie la liste actuelle
+  des entrées. Chaque entrée doit exposer `.id` et `.get(key, default)`,
+  la forme dont `notifier.py` a besoin pour détecter les nouvelles
+  entrées et lire `title`, `author`, `link`, `summary`.
 
-`SOURCE_HINT` est optionnel : texte indicatif affiche dans le panneau de
-reglage a cote du champ de saisie de la source.
+Deux constantes facultatives : `DEFAULT_INTERVAL_SECONDS`, l’intervalle que
+la page propose pour une nouvelle source de ce type (60 s sinon ; le
+prévoir large pour une API limitée en débit), et `SOURCE_HINT`, un exemple
+de source attendue, gardé comme documentation (la page desktop ne
+l’affiche pas).
 
-Si les donnees brutes sont deja des objets avec `.id`/`.get()` (comme
-les entrees feedparser dans `rss.py`), les renvoyer directement. Sinon,
-envelopper chaque element dans `providers.base.Entry(id, title, author,
-link, summary)`, comme le fait `github_issues.py` pour l'API JSON de
-GitHub.
+Si les données brutes sont déjà des objets avec `.id`/`.get()` (comme
+les entrées feedparser dans `rss.py`), les renvoyer directement. Sinon,
+envelopper chaque élément dans `providers.base.Entry(id, title, author,
+link, summary, created)`, comme le fait `github_issues.py` pour l’API JSON
+de GitHub. `created` (une date ISO 8601) est facultatif mais utile : il
+permet à `notifier.py` de distinguer une entrée vraiment nouvelle d’une
+ancienne qui refait surface.
 
 Enregistrer ensuite le module dans le dict `PROVIDERS` de
-`providers/__init__.py` (cle = type interne, valeur = le module). Rien
-d'autre ne change : `notifier.py` et la page de reglages (`gui/`)
-recuperent tout provider enregistre via `PROVIDERS`, sans branchement
-specifique par provider.
+`providers/__init__.py` (clé = type interne, valeur = le module).
+`notifier.py` et la page de réglages (`gui/`) récupèrent tout provider
+enregistré via `PROVIDERS`, sans branchement spécifique. Le seul autre
+endroit à toucher est `config_transfer.py`, qui valide l’export JSON et le
+transfert par QR : y ajouter le type dans `KINDS`, son intervalle par
+défaut et une vérification du format de sa source.
 
 Android conserve ce principe avec une interface Java commune, une classe par
 provider et un registre dans [ProviderRegistry.java](android/app/src/main/java/io/github/nico579/watch2notif/ProviderRegistry.java).
@@ -376,12 +417,12 @@ au format de transfert. Android exécute son implémentation native.
 
 ## Alternatives existantes
 
-Des lecteurs RSS generalistes (RSS Guard, QuiteRSS...) font deja du
-polling de flux avec notifications desktop, mais ne couvrent pas les
-sources non-RSS comme l'API issues de GitHub. `watch2notif` reste
-minimaliste (pas de lecteur d'articles) et integre l'autostart, les
-notifications cliquables, et un petit systeme de providers pour ajouter
-des types de sources.
+Des lecteurs RSS généralistes (RSS Guard, QuiteRSS...) interrogent déjà
+des flux avec notifications, mais ne couvrent pas les sources hors RSS
+comme l’API des issues GitHub. `watch2notif` reste minimaliste (pas de
+lecteur d’articles) et intègre le démarrage automatique, les notifications
+cliquables et un petit système de providers pour ajouter des types de
+sources.
 
 ## Licence
 
