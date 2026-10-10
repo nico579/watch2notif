@@ -286,9 +286,16 @@ Les forums bâtis sur SMF (Simple Machines Forum, un moteur de forum PHP
 courant) exposent un flux RSS natif par sujet, sans plugin : ajouter
 `?action=.xml;type=rss2;topic=<id>.0` à l’URL `index.php` du forum, où
 `<id>` est l’identifiant numérique du sujet, visible dans l’URL du sujet
-lui-même (`index.php?topic=<id>.<offset>`). Il ne renvoie que les
-messages de ce fil, ce qui en fait un « prévenez-moi des nouvelles
-réponses à mon message » tout fait.
+lui-même (`index.php?topic=<id>.<offset>`). À vérifier avant de s’y fier :
+certains forums ignorent `topic=` et renvoient le flux de toute la rubrique
+(c’est le cas du forum Locus Map : son flux contenait aussi des messages
+d’autres sujets, notifiés comme s’ils répondaient à votre message). Ouvrez
+l’URL dans un navigateur et regardez les liens des entrées ; si plusieurs
+numéros `topic=` apparaissent, ajoutez à la source une consigne de **filtre
+IA** (voir plus bas) qui ne garde que votre fil, par exemple « Seulement
+les messages du fil intitulé « Re: nom de mon outil » ». Quand le flux est
+bien limité au sujet, c’est un « prévenez-moi des nouvelles réponses à mon
+message » tout fait.
 
 ### Issues GitHub (dépôts publics)
 
@@ -377,6 +384,29 @@ des messages (un message courant a consommé environ 400 tokens en entrée et
 Si la clé manque, que l’API ne répond pas ou que le modèle refuse de classer
 un message, watch2notif notifie quand même et le dit dans la notification :
 une entrée n’est jamais perdue en silence.
+
+### Rattraper d’anciens messages (PC, depuis les sources)
+
+Le filtre ne juge que les entrées nouvelles. Pour le faire passer une fois sur
+ce qu’une source a montré par le passé, par exemple trois mois d’un flux de
+recherche r/ :
+
+```bash
+python tools/rattrapage_flux.py --simuler                 # compte et chiffre, sans appel payant
+python tools/rattrapage_flux.py                           # 90 jours de r_blinkcameras_questions
+python tools/rattrapage_flux.py --flux CLÉ --jours 30     # une autre source, une autre période
+```
+
+`CLÉ` est la `key` de la source dans `config.json`. Le script lit la source,
+garde les entrées de la période, juge chacune avec la consigne du filtre IA de
+la source (ou `--consigne`) et écrit un rapport Markdown : les entrées
+retenues, celles qui ont été écartées (pour repérer un message écarté à tort)
+et celles qui avaient déjà été notifiées. Il ne notifie rien et ne touche pas
+à `state/` : le suivi horaire continue comme avant. Une page de recherche
+Reddit contient 100 entrées, ce qui couvre souvent un trimestre sur un petit
+subreddit ; Reddit répond HTTP 429 aux clients anonymes qui enchaînent
+plusieurs requêtes en quelques secondes, donc le lancer une fois et attendre
+quelques minutes avant de le relancer.
 
 ## Ajouter un type de source
 

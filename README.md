@@ -265,8 +265,15 @@ Forums built on SMF (Simple Machines Forum, a common PHP forum engine)
 expose a native per-topic RSS feed, no plugin needed: append
 `?action=.xml;type=rss2;topic=<id>.0` to the forum's `index.php` URL,
 where `<id>` is the numeric topic ID found in the topic's own URL
-(`index.php?topic=<id>.<offset>`). It only returns posts in that thread,
-so it works as a "notify me on new replies to my post" watcher.
+(`index.php?topic=<id>.<offset>`). Check it before trusting it: some forums
+ignore `topic=` and return the feed of the whole board (the Locus Map forum
+does: its feed also carried posts from other topics, which were notified as
+if they were replies). Open the URL in a browser and look at the links of
+the entries; if several `topic=` numbers appear, add an **AI filter**
+instruction to the source (see below) that keeps only your thread, for
+example "Only messages of the thread titled «Re: my tool name»".
+When the feed is limited to the topic, it works as a "notify me on new
+replies to my post" watcher.
 
 ### GitHub issues (public repos)
 
@@ -350,6 +357,27 @@ under a hundredth of a cent at October 2026 prices). If the key is missing,
 the API cannot answer or the model declines to classify a message,
 watch2notif notifies anyway and says so in the notification: an entry is
 never dropped silently.
+
+### Catching up on older messages (desktop, from source)
+
+The filter only judges entries that are new. To run it once over what a
+source showed in the past, for example three months of an r/ search feed:
+
+```bash
+python tools/rattrapage_flux.py --simuler                 # counts and estimates the cost, no paid call
+python tools/rattrapage_flux.py                           # 90 days of r_blinkcameras_questions
+python tools/rattrapage_flux.py --flux KEY --jours 30     # another source, another period
+```
+
+`KEY` is the source's `key` in `config.json`. The script reads the source,
+keeps the entries of the period, judges each with the source's AI filter
+instructions (or `--consigne`) and writes a Markdown report with the entries
+kept, those set aside (to spot a message wrongly discarded) and the ones
+already notified. It notifies nothing and leaves `state/` untouched, so the
+hourly follow-up goes on as before. A Reddit search page holds 100 entries, a
+quarter of activity on a small subreddit often fits in one; Reddit answers
+HTTP 429 to anonymous clients that send several requests within seconds, so
+run it once and wait a few minutes before running it again.
 
 ## Adding a source type
 
