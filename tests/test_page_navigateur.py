@@ -95,6 +95,10 @@ class PageWatch2notif(unittest.TestCase):
                      if r.status >= 400 else None)
         self.page.goto(self.adresse)
         expect(self.page.locator("#add-feed-btn")).not_to_be_empty()
+        # La première langue suit le système qui sert la page (anglais sur un
+        # runner de CI) : chaque scénario part donc du français, choisi ici.
+        self.page.get_by_role("button", name="FR", exact=True).click()
+        expect(self.page.locator("html")).to_have_attribute("lang", "fr")
 
     def tearDown(self):
         self.contexte.close()
