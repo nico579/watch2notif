@@ -22,6 +22,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # La page entière, dans un vrai Chromium piloté par Playwright : les vraies
+  # routes sur un port éphémère, données jetables et démarrage automatique
+  # simulé, comme test_notifier_web_tray.py. Les tests sous Node restent
+  # l'étage rapide. Un seul système suffit : la page est la même partout.
+  # Jumeau du job de gpxsolar, lidar2map et blink2video.
+  navigateur:
+    name: page dans un vrai navigateur
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Dependances, Playwright et Chromium
+        run: |
+          python -m pip install --quiet --require-hashes -r requirements.txt
+          python -m pip install --quiet playwright==1.63.0
+          python -m playwright install --with-deps chromium
+
+      - name: Page (tests/test_page_navigateur.py)
+        run: python -m unittest tests.test_page_navigateur -v
+
   syntaxe:
     name: syntaxe et imports ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
