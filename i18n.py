@@ -161,6 +161,7 @@ STRINGS = {
     "history_header_date": {"en": "Date", "fr": "Date"},
     "history_header_source": {"en": "Source", "fr": "Source"},
     "history_header_title": {"en": "Notification", "fr": "Notification"},
+    "history_header_text": {"en": "Text", "fr": "Texte"},
     "history_clear_button": {"en": "Clear history", "fr": "Vider l'historique"},
     "history_close_button": {"en": "Close", "fr": "Fermer"},
 }

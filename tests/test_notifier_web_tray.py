@@ -453,7 +453,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertIn("api.deleteHistoryEntry({ timestamp: entry.timestamp, link: entry.link || '' })", js)
         html = (notifier.GUI_DIR / "index.html").read_text(encoding="utf-8")
         history_head = html[html.index('id="history-table"'):html.index('id="history-body"')]
-        self.assertEqual(len(re.findall(r"<th[ >]", history_head)), 4)       # la colonne du bouton
+        self.assertEqual(len(re.findall(r"<th[ >]", history_head)), 5)       # texte et bouton
         self.assertEqual(set(notifier.i18n.STRINGS["history_delete_title"]), {"en", "fr"})
 
 

@@ -84,6 +84,9 @@ td.col-remove{width:110px;text-align:right;white-space:nowrap}
   border-radius:4px;padding:6px 12px;cursor:pointer;font:inherit;margin-top:8px}
 
 #history-table a{color:var(--ac)}
+#history-table td{vertical-align:top;overflow-wrap:anywhere}
+#history-table .col-text{width:40%}
+#history-table td.col-text{white-space:pre-wrap;line-height:1.5}
 
 @media (max-width:600px){
   body{padding:12px}

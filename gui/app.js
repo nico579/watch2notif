@@ -291,6 +291,9 @@ function renderHistory(entries) {
     } else {
       tdTitle.textContent = entry.title || '';
     }
+    const tdText = document.createElement('td');
+    tdText.className = 'col-text';
+    tdText.textContent = entry.summary || '';
     // Retire cette ligne seule. Le serveur la retrouve par horodatage + lien,
     // pas par rang : une nouvelle notification peut s'etre inseree en tete
     // depuis l'affichage de la page.
@@ -312,7 +315,7 @@ function renderHistory(entries) {
       } catch (error) { removeBtn.disabled = false; }
     });
     tdRemove.appendChild(removeBtn);
-    tr.append(tdDate, tdSource, tdTitle, tdRemove);
+    tr.append(tdDate, tdSource, tdTitle, tdText, tdRemove);
     body.appendChild(tr);
   }
 }
