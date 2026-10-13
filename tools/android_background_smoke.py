@@ -81,6 +81,17 @@ def open_app():
     wait_for(cpu_held, "partial wake lock acquired")
 
 
+def fgs_timeout_applied(milliseconds):
+    # device_config put returns before ActivityManager has read the new value. A session
+    # opened in between keeps the 6-hour limit and is never stopped: the step timed out
+    # intermittently. Prefer the value ActivityManager prints, when this image prints it.
+    key = "data_sync_fgs_timeout_duration"
+    constants = shell("dumpsys", "activity", "settings").replace(" ", "")
+    if key in constants:
+        return f"{key}={milliseconds}" in constants
+    return shell("device_config", "get", "activity_manager", key) == str(milliseconds)
+
+
 def automatic_scheduled():
     status = shell("dumpsys", "jobscheduler")
     # Android 14+ prints a namespace instead of '#' before the UID for WorkManager jobs.
@@ -165,6 +176,7 @@ def main():
 
         if sdk >= 35:
             shell("device_config", "put", "activity_manager", "data_sync_fgs_timeout_duration", "10000")
+            wait_for(lambda: fgs_timeout_applied(10000), "shortened foreground-service limit applied")
             prepare_fixture()
             open_app()
             shell("input", "keyevent", "KEYCODE_HOME")
