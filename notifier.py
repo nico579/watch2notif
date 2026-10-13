@@ -887,6 +887,10 @@ def build_api_routes(pause_event: threading.Event, state: SharedState, stop_even
     # (nico579_commons.maj_install.routes, maj_banniere.js) : /api/maj et
     # /api/maj-installer.
     state.installateur = _installateur(stop_event)
+
+    # Restes d'une mise à jour ancienne (assistant tué, coupure) à côté de l'installation :
+    # effacés en tâche de fond, sans retarder le démarrage (nico579_commons 0.5.0).
+    threading.Thread(target=state.installateur.nettoyer_restes, name="menage-maj", daemon=True).start()
     routes_maj_get, routes_maj_post = maj_install.routes(state.installateur, _langue_tray)
 
     # La case « Demarrer automatiquement avec le systeme » est celle du commun
