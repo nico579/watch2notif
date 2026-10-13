@@ -19,7 +19,11 @@ log="android/build/emulator-api-$MONITOR_API.log"
 "$sdk_root/emulator/emulator" -avd watch2notif_ci -port 5554 -no-window -no-snapshot \
   -noaudio -no-boot-anim -gpu swiftshader_indirect -camera-back none -memory 2048 -cores 2 > "$log" 2>&1 &
 emulator_pid=$!
-trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" >/dev/null 2>&1 || true' EXIT
+# The system log, emptied before the emulator dies: without it a timeout cannot say
+# whether Android stopped the service late or never stopped it.
+logcat="android/build/logcat-api-$MONITOR_API.txt"
+trap 'timeout 60 adb logcat -d -b all -v threadtime > "$logcat" 2>&1 || true
+adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" >/dev/null 2>&1 || true' EXIT
 deadline=$((SECONDS + 240))
 while ! adb get-state >/dev/null 2>&1; do
   if ! kill -0 "$emulator_pid" 2>/dev/null || ((SECONDS >= deadline)); then tail -n 60 "$log"; exit 1; fi
@@ -33,4 +37,6 @@ done
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
+# The emulator keeps 2 MB per buffer: too little for the whole run.
+adb logcat -G 16M || true
 python3 tools/android_background_smoke.py

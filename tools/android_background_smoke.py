@@ -81,6 +81,17 @@ def open_app():
     wait_for(cpu_held, "partial wake lock acquired")
 
 
+def fgs_timeout_applied(milliseconds):
+    # device_config put returns before ActivityManager has read the new value: a session
+    # opened in between would keep the 6-hour limit. Prefer the value ActivityManager
+    # prints, when this image prints it.
+    key = "data_sync_fgs_timeout_duration"
+    constants = shell("dumpsys", "activity", "settings").replace(" ", "")
+    if key in constants:
+        return f"{key}={milliseconds}" in constants
+    return shell("device_config", "get", "activity_manager", key) == str(milliseconds)
+
+
 def automatic_scheduled():
     status = shell("dumpsys", "jobscheduler")
     # Android 14+ prints a namespace instead of '#' before the UID for WorkManager jobs.
@@ -164,12 +175,23 @@ def main():
         checks.append("explicit_stop_and_automatic_fallback")
 
         if sdk >= 35:
+            # Google Play services syncs server flags into device_config about a minute
+            # after boot and rewrote the activity_manager namespace right after the session
+            # started (logcat of 2026-10-13): the 6-hour limit came back and the step timed
+            # out intermittently. Android's own switch for tests stops that sync.
+            shell("device_config", "set_sync_disabled_for_tests", "until_reboot")
             shell("device_config", "put", "activity_manager", "data_sync_fgs_timeout_duration", "10000")
+            wait_for(lambda: fgs_timeout_applied(10000), "shortened foreground-service limit applied")
             prepare_fixture()
             open_app()
             shell("input", "keyevent", "KEYCODE_HOME")
-            wait_for(lambda: preferences().get("interruption") == "limit" and not service_running() and not cpu_held(),
-                     "real Android 15 foreground-service timeout", timeout=90)
+            try:
+                wait_for(lambda: preferences().get("interruption") == "limit" and not service_running() and not cpu_held(),
+                         "real Android 15 foreground-service timeout", timeout=90)
+            except AssertionError:
+                print("data_sync_fgs_timeout_duration now:",
+                      shell("device_config", "get", "activity_manager", "data_sync_fgs_timeout_duration"))
+                raise
             assert preferences().get("requested") == "true", "Timed-out session must remain visibly interrupted"
             wait_for(automatic_scheduled, "automatic fallback after quota exhaustion")
             time.sleep(3)
@@ -189,6 +211,8 @@ def main():
             shell("device_config", "delete", "activity_manager", "data_sync_fgs_timeout_duration")
         else:
             shell("device_config", "put", "activity_manager", "data_sync_fgs_timeout_duration", original_timeout)
+        if sdk >= 35:
+            shell("device_config", "set_sync_disabled_for_tests", "none")
         adb("reverse", "--remove", "tcp:29089")
         server.shutdown()
         server.server_close()

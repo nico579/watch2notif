@@ -60,5 +60,6 @@ jobs:
           path: |
             android/build/background-smoke-api-*.json
             android/build/emulator-api-*.log
+            android/build/logcat-api-*.txt
             android/app/build/outputs/androidTest-results/
           if-no-files-found: ignore
