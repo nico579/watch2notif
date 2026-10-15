@@ -140,7 +140,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: python -c "import os, update_check; tag=os.environ['RELEASE_TAG']; assert tag == 'v' + update_check.VERSION, f'{tag} ne correspond pas a VERSION={update_check.VERSION}'"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '17'
