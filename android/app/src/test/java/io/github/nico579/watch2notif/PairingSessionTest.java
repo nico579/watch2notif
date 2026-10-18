@@ -97,7 +97,7 @@ public class PairingSessionTest {
         try {
             complete(session);
             assertEquals(PairingSession.State.RECEIVED, session.state());
-            assertEquals(5, session.received().feeds.size());
+            assertEquals(7, session.received().feeds.size());
             assertFalse("Provider work should still be blocked", poll.isDone());
             assertTrue(Store.get(RuntimeEnvironment.getApplication()).feeds().isEmpty());
         } finally { session.close(); releasePoll.countDown(); poll.cancel(true); }

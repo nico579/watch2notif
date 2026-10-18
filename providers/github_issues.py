@@ -22,7 +22,9 @@ API_ROOT = "https://api.github.com"
 DEFAULT_INTERVAL_SECONDS = 300
 
 
-def fetch_entries(repo: str) -> list:
+def lire_api(chemin: str):
+    """GET sur l'API REST de GitHub (JSON decode), avec GITHUB_TOKEN s'il est
+    defini. Partage par github_comments.py et github_forks.py."""
     token = os.environ.get("GITHUB_TOKEN", "")
     headers = {
         "Accept": "application/vnd.github+json",
@@ -32,12 +34,13 @@ def fetch_entries(repo: str) -> list:
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    req = urllib.request.Request(
-        f"{API_ROOT}/repos/{repo}/issues?state=open&sort=created&direction=desc&per_page=30",
-        headers=headers,
-    )
+    req = urllib.request.Request(f"{API_ROOT}{chemin}", headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read())
+        return json.loads(resp.read())
+
+
+def fetch_entries(repo: str) -> list:
+    data = lire_api(f"/repos/{repo}/issues?state=open&sort=created&direction=desc&per_page=30")
 
     entries = []
     for item in data:

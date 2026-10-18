@@ -85,7 +85,7 @@ public class PairingNetworkTest {
         JSONObject body = new JSONObject(connection.request.toString(StandardCharsets.UTF_8.name()));
         assertEquals(1, body.length()); assertEquals(vector.getJSONObject("qr").getString("code"), body.getString("code"));
         assertNull(connection.getURL().getQuery()); assertTrue(connection.disconnected);
-        assertEquals(5, received.feeds.size()); assertEquals("claude-test-value", received.claude);
+        assertEquals(7, received.feeds.size()); assertEquals("claude-test-value", received.claude);
     }
 
     @Test public void httpStatusesAreDistinctAndNeverTriggerRedirectsOrRetries() throws Exception {
@@ -160,7 +160,7 @@ public class PairingNetworkTest {
             assertTrue(request.stream().anyMatch(header -> header.equalsIgnoreCase("Host: 127.0.0.1:" + server.getLocalPort())));
             JSONObject body = new JSONObject(request.get(request.size() - 1));
             assertEquals(qr.getString("code"), body.getString("code")); assertEquals(1, body.length());
-            assertEquals(5, received.feeds.size()); assertEquals("github-test-value", received.github);
+            assertEquals(7, received.feeds.size()); assertEquals("github-test-value", received.github);
         } finally { executor.shutdownNow(); }
     }
 

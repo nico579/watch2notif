@@ -6,7 +6,7 @@
 # watch2notif
 
 Application pour Windows, Linux, macOS et Android qui surveille les flux
-RSS/Atom, issues GitHub, réponses de discussion, Sponsors et commentaires
+RSS/Atom, issues, commentaires et forks GitHub, réponses de discussion, Sponsors et commentaires
 YouTube, et affiche une notification native quand une nouveauté apparaît.
 
 Partie d’un besoin de surveiller une inbox Reddit (via les flux RSS privés
@@ -51,7 +51,8 @@ de provider commune et un registre sur chaque plateforme.
   l’historique (`self_update.py`). Un checkout des sources n’est jamais
   modifié automatiquement.
 - `providers/` : un module par type de source (`rss.py`,
-  `github_issues.py`, `github_discussion.py`, `github_sponsors.py`, `youtube_comments.py`),
+  `github_issues.py`, `github_comments.py`, `github_forks.py`, `github_discussion.py`,
+  `github_sponsors.py`, `youtube_comments.py`),
   chacun expose `fetch_entries(source) -> list[Entry]`.
   Ajouter un type de source demande un module ici et son enregistrement
   dans `providers/__init__.py`.
@@ -312,6 +313,24 @@ accès en lecture seule aux dépôts publics : le token doit seulement
 exister, pour authentifier la requête et lever la limite par IP. Préférer
 un intervalle de quelques minutes pour ce type de source, afin de rester
 sous la limite sans token.
+
+### Commentaires GitHub (dépôts publics)
+
+Saisir `owner/repo` comme source. Signale chaque nouveau commentaire sur
+les issues et les pull requests du dépôt, ce que le type « Issues GitHub »
+ne fait pas : un commentaire sur une issue qu’il connaît déjà n’y change
+rien. Une seule requête couvre tout le dépôt (ses 30 commentaires les plus
+récents). Vos propres commentaires, en tant que propriétaire du dépôt, et
+ceux des robots sont écartés. Même API REST, même token et même limite que
+les issues GitHub.
+
+### Forks GitHub (dépôts publics)
+
+Saisir `owner/repo` comme source. Signale un nouveau fork, et chaque
+poussée de commits sur un fork, dont GitHub ne prévient personne : un
+travail bâti sur votre projet apparaît le jour où il est poussé. Une
+requête liste jusqu’à 100 forks, vérifiés toutes les 30 minutes par défaut.
+Un fork qui se synchronise avec votre dépôt compte aussi comme une activité.
 
 ### Réponses à une discussion GitHub
 

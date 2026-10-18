@@ -6,7 +6,7 @@
 # watch2notif
 
 An app for Windows, Linux, macOS and Android that watches RSS/Atom feeds,
-GitHub issues, discussion replies, Sponsors and YouTube comments, and fires
+GitHub issues, comments and forks, discussion replies, Sponsors and YouTube comments, and fires
 a native notification whenever something new shows up.
 
 Started as a Reddit inbox watcher (via Reddit's private RSS feeds,
@@ -49,7 +49,8 @@ use a common provider interface and registry on each platform.
   history (`update_check.py`, `self_update.py`). A source checkout is
   never modified automatically.
 - `providers/`: one module per source type (`rss.py`, `github_issues.py`,
-  `github_discussion.py`, `github_sponsors.py`, `youtube_comments.py`), each exposing
+  `github_comments.py`, `github_forks.py`, `github_discussion.py`,
+  `github_sponsors.py`, `youtube_comments.py`), each exposing
   `fetch_entries(source) -> list[Entry]`. Adding a new source type means
   adding a module here and registering it in `providers/__init__.py`.
 - `gui/` + `nico579_commons.serveweb`: settings/history page (add/remove sources,
@@ -290,6 +291,23 @@ scope needs to be checked for read-only access to public repos, the
 token only needs to exist to authenticate the request and lift the
 per-IP limit. Prefer a longer per-source interval for this type (a few
 minutes) to stay under the unauthenticated limit.
+
+### GitHub comments (public repos)
+
+Enter `owner/repo` as the source. Reports each new comment on the repo's
+issues and pull requests, which the GitHub issues type does not: a comment
+on an issue it already knows changes nothing there. One request covers the
+whole repo (its 30 most recent comments). Your own comments, as the repo
+owner, and those of bots are left out. Same REST API, token and rate limit
+as GitHub issues.
+
+### GitHub forks (public repos)
+
+Enter `owner/repo` as the source. Reports a new fork, and new commits
+pushed to any fork, which GitHub itself tells nobody about: work built on
+top of your project shows up on the day it is pushed. One request lists up
+to 100 forks, checked every 30 minutes by default. A fork that syncs with
+your repo counts as activity too.
 
 ### GitHub discussion replies
 

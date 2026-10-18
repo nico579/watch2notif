@@ -49,6 +49,29 @@ public class ProvidersTest {
         assertEquals(1, entries.size()); assertEquals("?", entries.get(0).author); assertEquals("1", entries.get(0).id);
     }
 
+    @Test public void githubCommentsSkipTheOwnerAndBotsAndNameTheIssue() throws Exception {
+        String issues = "https://api.github.com/repos/nico579/watch2notif/issues/";
+        String json = "[{\"id\":11,\"user\":{\"login\":\"MCas86\",\"type\":\"User\"},\"issue_url\":\"" + issues + "40\",\"html_url\":\"h\",\"body\":\"b\"},"
+                + "{\"id\":12,\"user\":{\"login\":\"Nico579\",\"type\":\"User\"},\"issue_url\":\"" + issues + "40\"},"
+                + "{\"id\":13,\"user\":{\"login\":\"dependabot[bot]\",\"type\":\"Bot\"},\"issue_url\":\"" + issues + "41\"},"
+                + "{\"id\":14,\"user\":null,\"issue_url\":\"" + issues + "7\"}]";
+        List<Entry> entries = provider(json).fetch(new Feed("c", "GitHub", "github_comments", "nico579/watch2notif", 300, true), "", "");
+        assertEquals(2, entries.size());
+        assertEquals("11", entries.get(0).id); assertEquals("#40", entries.get(0).title); assertEquals("MCas86", entries.get(0).author);
+        assertEquals("#7", entries.get(1).title); assertEquals("?", entries.get(1).author);
+    }
+
+    @Test public void githubForksMakeANewEntryForEachPush() throws Exception {
+        String json = "[{\"full_name\":\"TruncatedPi/blink2video_noModule\",\"pushed_at\":\"2026-10-10T01:34:03Z\","
+                + "\"owner\":{\"login\":\"TruncatedPi\"},\"html_url\":\"h\",\"description\":null}]";
+        Feed feed = new Feed("f", "GitHub", "github_forks", "nico579/blink2video", 1800, true);
+        Entry first = provider(json).fetch(feed, "", "").get(0);
+        Entry later = provider(json.replace("2026-10-10T01:34:03Z", "2026-10-12T08:00:00Z")).fetch(feed, "", "").get(0);
+        assertEquals("TruncatedPi/blink2video_noModule@2026-10-10T01:34:03Z", first.id);
+        assertNotEquals(first.id, later.id); assertTrue(later.created > first.created);
+        assertEquals("TruncatedPi", first.author); assertEquals("", first.summary);
+    }
+
     @Test public void discussionRepliesKeepDistinctNodeIdsWhenDatabaseIdsAreNull() throws Exception {
         String json = "{\"data\":{\"repository\":{\"discussion\":{\"title\":\"D\",\"comments\":{\"nodes\":[{\"id\":\"C1\",\"databaseId\":null,\"author\":null,\"replies\":{\"nodes\":[{\"id\":\"R1\",\"databaseId\":null,\"author\":null}]}}]}}}}}";
         List<Entry> entries = provider(json).fetch(new Feed("d", "Discussion", "github_discussion", "nico579/watch2notif#1", 300, true), "test", "");

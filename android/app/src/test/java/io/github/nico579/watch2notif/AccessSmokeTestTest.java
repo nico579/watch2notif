@@ -39,8 +39,10 @@ public class AccessSmokeTestTest {
     private AccessSmokeTest test(Network.Transport transport, Provider.Credentials credentials) {
         return new AccessSmokeTest(RuntimeEnvironment.getApplication(), transport, credentials);
     }
-    @Test public void allFiveRegisteredProvidersAndClaudeAreCheckedWithoutChangingMonitoringState() throws Exception {
+    @Test public void allRegisteredProvidersAndClaudeAreCheckedWithoutChangingMonitoringState() throws Exception {
         List<Feed> feeds = Arrays.asList(rss(), new Feed("g", "Issues", "github_issues", "nico579/watch2notif", 300, true),
+                new Feed("c", "Comments", "github_comments", "nico579/watch2notif", 300, true),
+                new Feed("f", "Forks", "github_forks", "nico579/watch2notif", 1800, true),
                 new Feed("d", "Discussion", "github_discussion", "nico579/watch2notif#1", 300, true),
                 new Feed("s", "Sponsors", "github_sponsors", "nico579", 1800, true),
                 new Feed("y", "YouTube", "youtube_comments", "dQw4w9WgXcQ", 300, true));
@@ -63,7 +65,7 @@ public class AccessSmokeTestTest {
             assertTrue(token.isEmpty()); return bytes("<rss><channel/></rss>");
         };
         List<AccessSmokeTest.Row> rows = test(transport, name -> name + "-test").run(feeds, row -> { });
-        assertEquals(6, rows.size());
+        assertEquals(8, rows.size());
         assertEquals(1, requests.stream().filter(url -> url.contains("anthropic.com")).count());
         for (AccessSmokeTest.Row row : rows) assertEquals(row.label, AccessSmokeTest.Outcome.OK, row.outcome);
         assertEquals(before, store.exportConfig().toString());
