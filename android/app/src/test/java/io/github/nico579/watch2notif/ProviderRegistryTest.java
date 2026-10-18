@@ -33,9 +33,11 @@ public class ProviderRegistryTest {
     }
 
     @Test public void builtinsKeepPortableIdsAndDriveEditorMetadataAndImportDefaults() throws Exception {
-        String[] kinds = {"rss", "github_issues", "github_discussion", "github_sponsors", "youtube_comments"};
-        String[] sources = {"https://example.org/feed", "nico579/watch2notif", "nico579/watch2notif#1", "nico579", "dQw4w9WgXcQ"};
-        int[] intervals = {60, 300, 300, 1800, 300};
+        String[] kinds = {"rss", "github_issues", "github_comments", "github_forks", "github_discussion",
+                "github_sponsors", "youtube_comments"};
+        String[] sources = {"https://example.org/feed", "nico579/watch2notif", "nico579/watch2notif", "nico579/watch2notif",
+                "nico579/watch2notif#1", "nico579", "dQw4w9WgXcQ"};
+        int[] intervals = {60, 300, 300, 1800, 300, 1800, 300};
         assertArrayEquals(kinds, KINDS);
         assertEquals(kinds.length, ProviderRegistry.BUILTINS.all().size());
         Set<Class<?>> implementations = new HashSet<>();
@@ -49,7 +51,7 @@ public class ProviderRegistryTest {
             Feed imported = Feed.fromJson(new JSONObject().put("kind", kinds[i]).put("url", sources[i]), 17, true);
             assertEquals(intervals[i], imported.interval); assertEquals(kinds[i], imported.json().getString("kind"));
         }
-        assertEquals(5, implementations.size());
+        assertEquals(7, implementations.size());
     }
 
     @Test public void registryRejectsAmbiguousIdsAndCannotBeMutated() {

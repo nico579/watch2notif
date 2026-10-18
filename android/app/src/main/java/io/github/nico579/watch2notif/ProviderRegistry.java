@@ -9,6 +9,7 @@ import java.util.Map;
 /** Add a provider here; the editor, validation and poller use this same registry. */
 final class ProviderRegistry {
     static final ProviderRegistry BUILTINS = new ProviderRegistry(new RssProvider(), new GithubIssuesProvider(),
+            new GithubCommentsProvider(), new GithubForksProvider(),
             new GithubDiscussionProvider(), new GithubSponsorsProvider(), new YoutubeCommentsProvider());
     private final Map<String, Provider> byKind;
     private final List<Provider> providers;

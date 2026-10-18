@@ -22,7 +22,7 @@ public class PairingTest {
     @Test public void decryptsPythonAesGcmAndImportsEverySourceAndCredential() throws Exception {
         JSONObject vector = vector(); PairingClient.Ticket ticket = PairingClient.parseTicket(vector.getJSONObject("qr").toString());
         PairingClient.Received received = PairingClient.decrypt(ticket, vector.getJSONObject("response"));
-        assertEquals(5, received.feeds.size()); assertEquals("github-test-value", received.github);
+        assertEquals(7, received.feeds.size()); assertEquals("github-test-value", received.github);
         assertEquals("youtube-test-value", received.youtube); assertEquals("claude-test-value", received.claude);
         assertEquals("Seulement les questions.", received.feeds.get(0).filter); assertFalse(received.feeds.get(3).enabled);
         assertTrue(Arrays.equals(new byte[32], ticket.key));

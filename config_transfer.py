@@ -6,7 +6,8 @@ import re
 import uuid
 from urllib.parse import urlparse
 
-KINDS = {"rss", "github_issues", "github_discussion", "github_sponsors", "youtube_comments"}
+KINDS = {"rss", "github_issues", "github_comments", "github_forks", "github_discussion",
+         "github_sponsors", "youtube_comments"}
 MAX_SOURCES = 50
 
 
@@ -28,7 +29,7 @@ def portable_config(config: dict) -> dict:
         instruction = str(row.get("filtre_ia") or "").strip()
         if kind not in KINDS or len(address) > 8192 or not label or len(label) > 200 or len(instruction) > 4000:
             raise ValueError("invalid source")
-        default = 60 if kind == "rss" else 1800 if kind == "github_sponsors" else 300
+        default = 60 if kind == "rss" else 1800 if kind in {"github_sponsors", "github_forks"} else 300
         interval = row.get("interval_seconds")
         if interval is None:
             interval = default
@@ -40,7 +41,7 @@ def portable_config(config: dict) -> dict:
         if kind == "rss":
             parsed = urlparse(address)
             valid = parsed.scheme.lower() in {"http", "https"} and bool(parsed.hostname) and parsed.username is None
-        elif kind == "github_issues":
+        elif kind in {"github_issues", "github_comments", "github_forks"}:
             valid = re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", address)
         elif kind == "github_discussion":
             valid = re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]{0,8}", address)

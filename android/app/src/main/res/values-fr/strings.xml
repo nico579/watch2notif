@@ -27,10 +27,14 @@
     <string name="source_interval">Intervalle en secondes (mode rapide)</string>
     <string name="source_enabled">Activée</string>
     <string name="github_issues_label">Issues GitHub</string>
+    <string name="github_comments_label">Commentaires GitHub</string>
+    <string name="github_forks_label">Forks GitHub</string>
     <string name="github_discussion_label">Réponses à une discussion GitHub</string>
     <string name="youtube_comments_label">Commentaires YouTube</string>
     <string name="rss_hint">https://example.org/feed.xml</string>
     <string name="github_issues_hint">owner/repo</string>
+    <string name="github_comments_hint">owner/repo</string>
+    <string name="github_forks_hint">owner/repo</string>
     <string name="github_discussion_hint">owner/repo#123</string>
     <string name="github_sponsors_hint">Identifiant GitHub ou organisation</string>
     <string name="youtube_comments_hint">URL de vidéo YouTube ou ID de 11 caractères</string>

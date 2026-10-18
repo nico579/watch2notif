@@ -97,7 +97,7 @@ public class PairingSessionTest {
         try {
             complete(session);
             assertEquals(PairingSession.State.RECEIVED, session.state());
-            assertEquals(5, session.received().feeds.size());
+            assertEquals(7, session.received().feeds.size());
             assertFalse("Provider work should still be blocked", poll.isDone());
             assertTrue(Store.get(RuntimeEnvironment.getApplication()).feeds().isEmpty());
         } finally { session.close(); releasePoll.countDown(); poll.cancel(true); }
@@ -121,7 +121,7 @@ public class PairingSessionTest {
             connection.release.countDown(); complete(session);
             AlertDialog result = ShadowAlertDialog.getLatestAlertDialog(); assertTrue(result.isShowing());
             TextView message = result.findViewById(android.R.id.message);
-            assertEquals(controller.get().getString(R.string.pair_import_question, 5, 3), message.getText().toString());
+            assertEquals(controller.get().getString(R.string.pair_import_question, 7, 3), message.getText().toString());
             assertTrue(Store.get(controller.get()).feeds().isEmpty());
             result.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
             shadowOf(Looper.getMainLooper()).idle();

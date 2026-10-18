@@ -29,11 +29,15 @@
     <string name="source_enabled">Enabled</string>
     <string name="rss_label" translatable="false">RSS / Atom</string>
     <string name="github_issues_label">GitHub issues</string>
+    <string name="github_comments_label">GitHub comments</string>
+    <string name="github_forks_label">GitHub forks</string>
     <string name="github_discussion_label">GitHub discussion replies</string>
     <string name="github_sponsors_label" translatable="false">GitHub Sponsors</string>
     <string name="youtube_comments_label">YouTube comments</string>
     <string name="rss_hint">https://example.org/feed.xml</string>
     <string name="github_issues_hint">owner/repo</string>
+    <string name="github_comments_hint">owner/repo</string>
+    <string name="github_forks_hint">owner/repo</string>
     <string name="github_discussion_hint">owner/repo#123</string>
     <string name="github_sponsors_hint">GitHub username or organization</string>
     <string name="youtube_comments_hint">YouTube video URL or 11-character ID</string>

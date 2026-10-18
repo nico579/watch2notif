@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 import config_transfer
-from providers import github_discussion, youtube_comments
+from providers import github_comments, github_discussion, github_forks, github_issues, youtube_comments
 
 
 class ReponseSimulee:
@@ -76,6 +76,58 @@ class VideoYouTube(unittest.TestCase):
     def test_un_identifiant_trop_long_est_refuse(self):
         with self.assertRaises(ValueError):
             youtube_comments._extract_video_id("https://www.youtube.com/watch?v=6rNqLI9K8TcXX")
+
+
+class CommentairesGitHub(unittest.TestCase):
+    # Jumeau de ProvidersTest.githubCommentsSkipTheOwnerAndBotsAndNameTheIssue.
+    def test_ni_le_proprietaire_ni_les_robots_et_le_numero_de_l_issue(self):
+        issues = "https://api.github.com/repos/nico579/watch2notif/issues/"
+        donnees = [
+            {"id": 11, "user": {"login": "MCas86", "type": "User"}, "issue_url": issues + "40",
+             "html_url": "h", "body": "b", "created_at": "2026-10-17T15:11:11Z"},
+            {"id": 12, "user": {"login": "Nico579", "type": "User"}, "issue_url": issues + "40"},
+            {"id": 13, "user": {"login": "dependabot[bot]", "type": "Bot"}, "issue_url": issues + "41"},
+            {"id": 14, "user": None, "issue_url": issues + "7"},
+        ]
+        requetes = []
+
+        def ouvrir(requete, timeout=None):
+            requetes.append(requete.full_url)
+            return ReponseSimulee(donnees)
+
+        with mock.patch.object(github_issues.urllib.request, "urlopen", side_effect=ouvrir):
+            entrees = github_comments.fetch_entries("nico579/watch2notif")
+        self.assertEqual([(e.id, e.get("title"), e.get("author")) for e in entrees],
+                         [("11", "#40", "MCas86"), ("14", "#7", "?")])
+        self.assertIn("/repos/nico579/watch2notif/issues/comments?sort=created&direction=desc", requetes[0])
+
+
+class ForksGitHub(unittest.TestCase):
+    # Jumeau de ProvidersTest.githubForksMakeANewEntryForEachPush.
+    def test_chaque_poussee_fait_une_entree_nouvelle(self):
+        fork = {"full_name": "TruncatedPi/blink2video_noModule", "owner": {"login": "TruncatedPi"},
+                "html_url": "h", "description": None}
+
+        def lire(pousse):
+            with mock.patch.object(github_issues.urllib.request, "urlopen",
+                                   return_value=ReponseSimulee([dict(fork, pushed_at=pousse)])):
+                return github_forks.fetch_entries("nico579/blink2video")[0]
+
+        premiere, suivante = lire("2026-10-10T01:34:03Z"), lire("2026-10-12T08:00:00Z")
+        self.assertEqual(premiere.id, "TruncatedPi/blink2video_noModule@2026-10-10T01:34:03Z")
+        self.assertNotEqual(premiere.id, suivante.id)
+        self.assertEqual((premiere.get("author"), premiere.get("summary")), ("TruncatedPi", ""))
+
+
+class TransfertDesNouvellesSources(unittest.TestCase):
+    def test_un_depot_et_la_cadence_par_defaut(self):
+        for kind, defaut in (("github_comments", 300), ("github_forks", 1800)):
+            with self.subTest(kind=kind):
+                ligne = config_transfer.portable_config(
+                    {"feeds": [{"kind": kind, "url": "nico579/blink2video"}]})["feeds"][0]
+                self.assertEqual((ligne["kind"], ligne["interval_seconds"]), (kind, defaut))
+                with self.assertRaises(ValueError):
+                    config_transfer.portable_config({"feeds": [{"kind": kind, "url": "https://example.org"}]})
 
 
 if __name__ == "__main__":

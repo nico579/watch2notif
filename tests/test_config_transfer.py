@@ -20,7 +20,7 @@ class PortableConfigTests(unittest.TestCase):
         self.assertEqual(result["feeds"][0]["filtre_ia"], "Questions only")
         self.assertNotIn("never-export-this", json.dumps(result))
 
-    def test_android_fixture_round_trips_all_five_provider_types(self):
+    def test_android_fixture_round_trips_every_provider_type(self):
         vector = json.loads((Path(__file__).parent / "fixtures/pairing_vector.json").read_text(encoding="utf-8"))
         config = vector["expected"]
         result = config_transfer.portable_config(config)
